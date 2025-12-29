@@ -1,0 +1,41 @@
+name: Test OIDC Setup
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/*
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read    # Required to checkout code
+
+jobs:
+  test-oidc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+          role-session-name: GitHubActions-${{ github.run_id }}
+          aws-region: eu-west-1
+      
+      - name: Verify AWS credentials
+        run: |
+          echo "Testing AWS OIDC authentication..."
+          aws sts get-caller-identity
+          echo "✅ Successfully authenticated with AWS using OIDC!"
+      
+      - name: List S3 buckets (optional test)
+        run: |
+          echo "Listing S3 buckets to verify permissions..."
+          aws s3 ls || echo "No S3 access or no buckets found"
