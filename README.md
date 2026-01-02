@@ -36,8 +36,6 @@ Traditional GitHub Actions authentication with AWS requires:
 - [Prerequisites](#-prerequisites)
 - [Quick Start](#-quick-start)
 - [Documentation](#-documentation)
-- [Terraform Modules](#-terraform-modules)
-- [Examples](#-examples)
 - [Security Best Practices](#-security-best-practices)
 - [Troubleshooting](#-troubleshooting)
 - [Contributing](#-contributing)
