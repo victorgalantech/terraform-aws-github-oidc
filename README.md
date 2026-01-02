@@ -46,52 +46,32 @@ Traditional GitHub Actions authentication with AWS requires:
 
 ## ⚠️ Prerequisites
 
-- AWS account(s) - one per environment (dev, qa, prod)
-- GitHub repository with Actions enabled
-- AWS CLI installed and configured
-- Terraform 1.6+ (if using Terraform modules)
-- Permissions to create IAM identity providers and roles
+- **AWS account(s)** - one per environment (dev, qa, prod)
+- **GitHub repository** with Actions enabled
+- **AWS CLI** installed and configured
+- **Admin access** to AWS console (for initial `dev-admin` user creation)
+- **Terraform 1.6+** (if using Terraform modules)
+- **Permissions** to create IAM users, identity providers, and roles
 
 ---
 
 ## 🚀 Quick Start
 
-### Option 1: Manual Setup (AWS Console + CLI)
+### Setup using AWS Console + CLI
 
-**Time:** ~15 minutes per AWS account
+**Time:** ~20 minutes per AWS account
 
-👉 **Follow [OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md) for step-by-step instructions**
+👉 **Follow [OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md) for complete step-by-step instructions**
 
 **Summary:**
-1. Create OIDC identity provider in AWS
-2. Create IAM role with trust policy for GitHub
-3. Attach permissions policy to role
-4. Configure GitHub Variables with role ARN
+1. **Create dev-admin IAM user** with OIDC and role management permissions
+2. **Create OIDC identity provider** in AWS
+3. **Create IAM role** with trust policy for GitHub Actions
+4. **Attach TerraformDeploymentPolicy** (organization-wide deployment policy)
+5. **Configure GitHub Variables** with role ARN
+6. **Test with dev environment** before proceeding to QA/Prod
 
-### Option 2: Terraform Automation (Recommended)
-
-**Time:** ~5 minutes per AWS account
-
-```bash
-cd terraform
-
-# Configure for your environment
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your values
-
-# Deploy
-terraform init
-terraform plan
-terraform apply
-```
-
-**What gets created:**
-- ✅ OIDC identity provider
-- ✅ IAM role with GitHub trust policy
-- ✅ IAM policy with required permissions
-- ✅ Policy attachment to role
-
----
+> **⚠️ Important**: Complete setup and testing in **dev** environment before replicating to QA and Prod.
 
 ## 📚 Documentation
 
@@ -100,81 +80,7 @@ terraform apply
 - **[OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md)** - Complete manual setup walkthrough
 - **[AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md)** - IAM policy reference and examples
 
-### Quick References
-
-- **[examples/github-actions-role/](examples/github-actions-role/)** - Example Terraform configuration
-- **[terraform/](terraform/)** - Reusable Terraform module
-
----
-
-## 🏗️ Terraform Modules
-
-This repository provides reusable Terraform modules for automated setup:
-
-### Module: `oidc-provider`
-
-Creates AWS OIDC identity provider for GitHub Actions.
-
-```hcl
-module "github_oidc" {
-  source = "./terraform"
-
-  github_org        = "your-org"
-  github_repo       = "your-repo"
-  role_name         = "github-actions-terraform-dev"
-  aws_region        = "eu-west-1"
-  
-  # S3 and DynamoDB permissions
-  s3_bucket_patterns = [
-    "arn:aws:s3:::<company>-tfstate-*",
-    "arn:aws:s3:::<company>-tfstate-*/*"
-  ]
-  
-  dynamodb_table_arns = [
-    "arn:aws:dynamodb:eu-west-1:*:table/terraform-state-locks"
-  ]
-}
-```
-
-**Outputs:**
-- `role_arn` - IAM role ARN to use in GitHub Variables
-- `oidc_provider_arn` - OIDC provider ARN
-
----
-
-## 💡 Examples
-
-### Example 1: Single Environment
-
-```bash
-cd examples/github-actions-role
-terraform init
-terraform apply
-```
-
-Creates OIDC setup for one environment (e.g., dev).
-
-### Example 2: Multi-Account Setup
-
-Deploy to 3 separate AWS accounts:
-
-```bash
-# Dev Account
-export AWS_PROFILE=dev-admin
-cd examples/github-actions-role
-terraform workspace new dev
-terraform apply -var-file=dev.tfvars
-
-# QA Account
-export AWS_PROFILE=qa-admin
-terraform workspace new qa
-terraform apply -var-file=qa.tfvars
-
-# Prod Account
-export AWS_PROFILE=prod-admin
-terraform workspace new prod
-terraform apply -var-file=prod.tfvars
-```
+**Best Practice:** Test each environment sequentially (Dev → QA → Prod) before moving to the next.
 
 ---
 
@@ -246,7 +152,7 @@ aws cloudtrail lookup-events \
 
 **Cause**: OIDC provider not created in AWS account.
 
-**Solution**: Run Step 1 of setup guide or deploy Terraform module.
+**Solution**: Run Step 1 of setup guide
 
 ### Error: "Access Denied" during workflow
 
@@ -256,28 +162,6 @@ aws cloudtrail lookup-events \
 1. Review attached policies on the role
 2. Check resource ARNs match your bucket/table names
 3. See [AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md) for required permissions
-
----
-
-## 🔄 Migration from IAM User Access Keys
-
-### Migration Checklist
-
-- [ ] Complete OIDC setup for all environments
-- [ ] Test workflows with OIDC on feature branch
-- [ ] Verify all environment workflows succeed
-- [ ] Update GitHub Variables with role ARNs
-- [ ] Remove old access key secrets
-- [ ] Delete IAM users (after confidence period)
-- [ ] Update team documentation
-
-### Rollback Procedure
-
-If issues occur, quickly revert:
-
-1. Re-add access key secrets to GitHub
-2. Revert workflow to use `aws-access-key-id` / `aws-secret-access-key`
-3. Debug OIDC setup offline
 
 ---
 
@@ -360,9 +244,10 @@ MIT License - See [LICENSE](LICENSE) file for details
 
 ## 🔗 Related Projects
 
-This OIDC setup is a prerequisite for:
+This OIDC setup enables secure deployments for:
 
-- **[terraform-states-s3-bucket](https://github.com/YOUR_ORG/terraform-states-s3-bucket)** - Terraform state backend infrastructure
+- **[terraform-states-s3-bucket](https://github.com/victorgalantech/terraform-states-s3-bucket)** - Terraform state backend infrastructure
+- Future projects: Lambda functions, Fargate services, Glue jobs, Bedrock applications, etc.
 
 ---
 
