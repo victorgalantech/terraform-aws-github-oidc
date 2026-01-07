@@ -139,6 +139,29 @@ The `dev-admin` user will have explicit permissions to:
                 "iam:ListAttachedRolePolicies"
             ],
             "Resource": "*"
+        },
+        {
+            "Sid": "AuditCloudTrail",
+            "Effect": "Allow",
+            "Action": [
+                "cloudtrail:LookupEvents",
+                "cloudtrail:DescribeTrails",
+                "cloudtrail:GetTrailStatus",
+                "cloudtrail:GetEventSelectors",
+                "cloudtrail:ListTags"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AuditCloudWatchLogs",
+            "Effect": "Allow",
+            "Action": [
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+                "logs:FilterLogEvents",
+                "logs:GetLogEvents"
+            ],
+            "Resource": "*"
         }
     ]
 }
@@ -573,8 +596,8 @@ jobs:
 ### 5.2: Create Test Branch
 
 ```bash
-git checkout -b test/oidc-setup
-git push origin test/oidc-setup
+git checkout -b feature/test-oidc-setup
+git push origin feature/test-oidc-setup
 ```
 
 ### 5.3: Monitor Workflow
@@ -595,20 +618,6 @@ Credentials will expire at: 2024-12-26T14:30:00Z
 ### 5.4: Verify AWS Access
 
 Check subsequent steps for successful AWS API calls.
-
-### 5.5: Check CloudTrail (Optional)
-
-In AWS CloudTrail, look for AssumeRoleWithWebIdentity events:
-
-```bash
-aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
-  --max-results 5
-```
-
-You should see events with:
-- **Principal**: `token.actions.githubusercontent.com`
-- **SessionName**: `GitHubActions-<run-id>`
 
 ---
 
