@@ -66,7 +66,7 @@ This guide walks you through setting up OpenID Connect (OIDC) authentication bet
 
 ## Setup Overview
 
-**Multi-Account Architecture**: Perform steps 1-3 in **each AWS account** (dev, qa, prod).
+**Multi-Account Architecture**: Perform steps 1-5 in **each AWS account** (dev, qa, prod).
 
 1. **Create dev-admin User** with required IAM permissions (once per account)
 2. **Create OIDC Identity Provider** in AWS (once per account)
@@ -189,7 +189,7 @@ aws sts get-caller-identity --profile dev-admin
 }
 ```
 
-**Repeat this process** for QA and Prod AWS accounts, creating:
+**Repeat this process** for QA and Prod AWS accounts to create the qa-admin and prod-admin profiles. (Note: You may wish to verify Dev is fully working first):
 - `qa-admin` profile
 - `prod-admin` profile (or `pro-admin`)
 
@@ -278,10 +278,10 @@ Create a file `github-trust-policy.json`:
 }
 ```
 
-**Important**: 
+**Important to do in the next step (3.2)**: 
 - Replace `YOUR_ACCOUNT_ID` with your AWS account ID (different for dev/qa/prod)
-- Replace `YOUR_GITHUB_ORG/YOUR_REPO` with your actual GitHub org and repository name
-- Example: `repo:mycompany/terraform-states-s3-bucket:*`
+- Replace `YOUR_GITHUB_ORG` with your actual GitHub org and repository name
+- Example: `acmetechorg`
 
 ### Step 3.2: Create IAM Role (Dev Example)
 

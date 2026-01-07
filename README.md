@@ -1,12 +1,22 @@
 # AWS GitHub Actions OIDC Setup 🔐
 
-[![Terraform](https://img.shields.io/badge/Terraform-1.6+-623CE4?logo=terraform)](https://www.terraform.io/)
 [![AWS](https://img.shields.io/badge/AWS-IAM%20%7C%20OIDC-FF9900?logo=amazon-aws)](https://aws.amazon.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 **Secure, keyless authentication for GitHub Actions workflows on AWS using OpenID Connect (OIDC).**
 
 This repository provides everything you need to set up OIDC authentication between GitHub Actions and AWS, eliminating the need for long-lived IAM user access keys.
+
+---
+
+## 📋 Table of Contents
+
+- [What This Solves](#-what-this-solves)
+- [Prerequisites](#-prerequisites)
+- [Quick Start](#-quick-start)
+- [Documentation](#-documentation)
+- [Security Best Practices](#-security-best-practices)
+- [Troubleshooting](#-troubleshooting)
+- [Contributing](#-contributing)
 
 ---
 
@@ -28,17 +38,6 @@ Traditional GitHub Actions authentication with AWS requires:
 - ✅ **Enhanced auditing** - Clear CloudTrail logs with session details
 - ✅ **Modern best practice** - Recommended by AWS and GitHub
 
----
-
-## 📋 Table of Contents
-
-- [What This Solves](#-what-this-solves)
-- [Prerequisites](#-prerequisites)
-- [Quick Start](#-quick-start)
-- [Documentation](#-documentation)
-- [Security Best Practices](#-security-best-practices)
-- [Troubleshooting](#-troubleshooting)
-- [Contributing](#-contributing)
 
 ---
 
@@ -48,7 +47,6 @@ Traditional GitHub Actions authentication with AWS requires:
 - **GitHub repository** with Actions enabled
 - **AWS CLI** installed and configured
 - **Admin access** to AWS console (for initial `dev-admin` user creation)
-- **Terraform 1.6+** (if using Terraform modules)
 - **Permissions** to create IAM users, identity providers, and roles
 
 ---
