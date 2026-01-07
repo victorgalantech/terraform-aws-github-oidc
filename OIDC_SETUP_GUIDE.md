@@ -2,6 +2,10 @@
 
 This guide walks you through setting up OpenID Connect (OIDC) authentication between GitHub Actions and AWS for secure, keyless deployments.
 
+> **📖 Related Documentation:**
+> - **[AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md)** - IAM policy reference and examples
+> - **[CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md)** - CloudTrail logging and monitoring setup (recommended after Step 3)
+
 ## 📋 Table of Contents
 
 - [Why OIDC?](#why-oidc)
@@ -136,21 +140,42 @@ The `dev-admin` user will have explicit permissions to:
                 "iam:DeletePolicy",
                 "iam:GetPolicy",
                 "iam:ListPolicies",
-                "iam:ListAttachedRolePolicies"
+                "iam:ListAttachedRolePolicies",
+                "iam:SimulatePrincipalPolicy"
             ],
             "Resource": "*"
         },
         {
-            "Sid": "AuditCloudTrail",
+            "Sid": "ManageCloudTrail",
             "Effect": "Allow",
             "Action": [
+                "cloudtrail:CreateTrail",
+                "cloudtrail:DeleteTrail",
+                "cloudtrail:UpdateTrail",
+                "cloudtrail:StartLogging",
+                "cloudtrail:StopLogging",
                 "cloudtrail:LookupEvents",
                 "cloudtrail:DescribeTrails",
                 "cloudtrail:GetTrailStatus",
                 "cloudtrail:GetEventSelectors",
-                "cloudtrail:ListTags"
+                "cloudtrail:PutEventSelectors",
+                "cloudtrail:ListTags",
+                "cloudtrail:AddTags",
+                "cloudtrail:RemoveTags"
             ],
             "Resource": "*"
+        },
+        {
+            "Sid": "ManageS3ForCloudTrail",
+            "Effect": "Allow",
+            "Action": [
+                "s3:CreateBucket",
+                "s3:PutBucketPolicy",
+                "s3:GetBucketPolicy",
+                "s3:PutBucketPublicAccessBlock",
+                "s3:ListBucket"
+            ],
+            "Resource": "arn:aws:s3:::cloudtrail-logs-*"
         },
         {
             "Sid": "AuditCloudWatchLogs",
@@ -170,7 +195,7 @@ The `dev-admin` user will have explicit permissions to:
 7. Click **Next**
 8. Set policy details:
    - **Policy name**: `dev-admin-policy`
-   - **Description**: `Grants explicit permissions to create, update, and delete OIDC identity providers and associated IAM roles. Does not include resource provisioning permissions (EC2, S3, etc.) or PassRole`
+   - **Description**: `Grants permissions to manage OIDC identity providers, IAM roles/policies, CloudTrail logging, and policy simulation. Does not include resource provisioning permissions (EC2, Lambda, etc.) or PassRole capability.`
 9. Click **Create policy**
 
 ### Attach Policy to User
@@ -342,7 +367,7 @@ arn:aws:iam::111111111111:role/github-actions-terraform-dev
 
 ### Step 3.3: Create Permissions Policy
 
-This policy will be used for **all deployments** in your organization (Lambdas, Fargate, Glue, Bedrock, etc.). You can add more permissions as needed in the future. (Optional)
+> **📖 See [AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md)** for additional policy examples and security best practices.
 
 Create a file `terraform-deployment-policy.json`:
 
@@ -505,6 +530,8 @@ Access to: S3, DynamoDB, Lambda, Fargate, Glue, Bedrock, etc.
 - The GitHub Actions role ARN will be needed in Step 4 for GitHub Variables
 - You must repeat this process for QA and Prod accounts with their respective naming conventions
 
+> **🔒 Recommended Next Step:** Set up CloudTrail logging to monitor all OIDC authentication attempts and AWS API calls. See **[CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md)** for complete instructions. CloudTrail setup is optional but highly recommended for security and compliance.
+
 ### Step 3.4: Test with Dev Environment Before Proceeding
 
 **⚠️ IMPORTANT**: Before creating OIDC setup in QA and Prod accounts, you should:
@@ -574,13 +601,27 @@ Click **New repository variable** and add the following:
 Ensure your workflow has:
 
 ```yaml
+name: Test OIDC Setup
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/*
+  pull_request:
+    branches:
+      - main
+      - develop
+
 permissions:
   id-token: write   # Required for OIDC
   contents: read    # Required to checkout code
 
 jobs:
-  deploy:
+  test-oidc:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -591,6 +632,17 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
           role-session-name: GitHubActions-${{ github.run_id }}
           aws-region: eu-west-1
+      
+      - name: Verify AWS credentials
+        run: |
+          echo "Testing AWS OIDC authentication..."
+          aws sts get-caller-identity
+          echo "✅ Successfully authenticated with AWS using OIDC!"
+      
+      - name: List S3 buckets (optional test)
+        run: |
+          echo "Listing S3 buckets to verify permissions..."
+          aws s3 ls || echo "No S3 access or no buckets found"
 ```
 
 ### 5.2: Create Test Branch
@@ -713,9 +765,10 @@ Enable CloudTrail logging and set up CloudWatch alarms for:
 ```bash
 # Review role usage
 aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=Username,AttributeValue=github-actions-terraform-dev \
-  --start-time $(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%S) \
-  --max-results 100
+  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+  --region us-east-1 \
+  --profile dev-admin \
+  --query 'Events[0].CloudTrailEvent' --output text
 ```
 
 ---

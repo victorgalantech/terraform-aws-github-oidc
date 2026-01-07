@@ -14,8 +14,7 @@ This repository provides everything you need to set up OIDC authentication betwe
 - [Prerequisites](#-prerequisites)
 - [Quick Start](#-quick-start)
 - [Documentation](#-documentation)
-- [Security Best Practices](#-security-best-practices)
-- [Troubleshooting](#-troubleshooting)
+- [Architecture](#-architecture)
 - [Contributing](#-contributing)
 
 ---
@@ -75,89 +74,9 @@ Traditional GitHub Actions authentication with AWS requires:
 
 - **[OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md)** - Complete manual setup walkthrough
 - **[AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md)** - IAM policy reference and examples
+- **[CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md)** - CloudTrail logging and monitoring setup (recommended for security and compliance)
 
 **Best Practice:** Test each environment sequentially (Dev → QA → Prod) before moving to the next.
-
----
-
-## 🔐 Security Best Practices
-
-### 1. Scope Trust Policies
-
-**Restrict to specific branches:**
-
-```json
-"Condition": {
-  "StringLike": {
-    "token.actions.githubusercontent.com:sub": [
-      "repo:myorg/myrepo:ref:refs/heads/main",
-      "repo:myorg/myrepo:ref:refs/heads/develop"
-    ]
-  }
-}
-```
-
-**Restrict to specific environments:**
-
-```json
-"StringEquals": {
-  "token.actions.githubusercontent.com:environment": "production"
-}
-```
-
-### 2. Use Separate Roles per Environment
-
-- ✅ One AWS account per environment (dev, qa, prod)
-- ✅ Separate IAM role in each account
-- ✅ Least privilege permissions scoped to environment resources
-
-### 3. Enable Monitoring
-
-```bash
-# Enable CloudTrail
-aws cloudtrail create-trail \
-  --name github-actions-audit \
-  --s3-bucket-name my-cloudtrail-logs
-
-# Monitor AssumeRole events
-aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity
-```
-
-### 4. Regular Audits
-
-- Review CloudTrail logs monthly
-- Check for unauthorized access attempts
-- Verify role permissions are still appropriate
-- Update trust policies as team structure changes
-
----
-
-## 🐛 Troubleshooting
-
-### Error: "Not authorized to perform: sts:AssumeRoleWithWebIdentity"
-
-**Cause**: Trust policy misconfigured or OIDC provider not found.
-
-**Solution**:
-1. Verify OIDC provider exists in AWS account
-2. Check trust policy repository name matches exactly
-3. Ensure `token.actions.githubusercontent.com:sub` pattern is correct
-
-### Error: "No OpenIDConnect provider found"
-
-**Cause**: OIDC provider not created in AWS account.
-
-**Solution**: Run Step 1 of setup guide
-
-### Error: "Access Denied" during workflow
-
-**Cause**: IAM role lacks necessary permissions.
-
-**Solution**: 
-1. Review attached policies on the role
-2. Check resource ARNs match your bucket/table names
-3. See [AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md) for required permissions
 
 ---
 
@@ -190,18 +109,35 @@ aws cloudtrail lookup-events \
          ↓
 ┌────────────────────────────────────────┐
 │  AWS STS (Security Token Service)      │
-│  - Validates JWT signature             │
-│  - Checks trust policy conditions      │
-│  - Returns temporary credentials       │
-└────────┬───────────────────────────────┘
-         │
-         │ 4. Temporary credentials (~1 hour)
+│  - Validates JWT signature             │◄─────┐
+│  - Checks trust policy conditions      │      │
+│  - Returns temporary credentials       │      │
+└────────┬───────────────────────────────┘      │
+         │                                       │
+         │ 4. Temporary credentials (~1 hour)    │
+         ↓                                       │
+┌──────────────────┐                            │
+│ GitHub Actions   │                            │
+│   Workflow       │                            │
+│ ✅ Authenticated  │                            │
+└────────┬─────────┘                            │
+         │                                       │
+         │ 5. AWS API calls                      │
+         ↓                                       │
+┌────────────────────────────────────────┐      │
+│  AWS Services                          │      │
+│  (S3, DynamoDB, Lambda, etc.)          │      │
+└────────────────────────────────────────┘      │
+                                                 │
+         ┌───────────────────────────────────────┘
+         │ All events logged
          ↓
-┌──────────────────┐
-│ GitHub Actions   │
-│   Workflow       │
-│ ✅ Authenticated  │
-└──────────────────┘
+┌────────────────────────────────────────┐
+│  AWS CloudTrail                        │
+│  - AssumeRoleWithWebIdentity events    │
+│  - All API calls with session details  │
+│  - Stored in S3 for audit/compliance   │
+└────────────────────────────────────────┘
 ```
 
 ### Multi-Account Setup
@@ -229,12 +165,6 @@ Contributions welcome! Please:
 2. Create a feature branch
 3. Make your changes
 4. Submit a pull request
-
----
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) file for details
 
 ---
 
