@@ -1,6 +1,6 @@
 # Terraform Bootstrap Guide for GitHub Actions OIDC
 
-This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `dev-admin` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, S3 state backend, and DynamoDB locking - no external dependencies required.
+This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `bootstrap-dev` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, S3 state backend, and DynamoDB locking - no external dependencies required.
 
 **Repository:** `terraform-aws-oidc-bootstrap`
 
@@ -50,8 +50,6 @@ This **single repository** creates your complete CI/CD foundation:
 6. **CloudTrail** - `github-actions-oidc-{environment}` (optional, enabled by default for audit logging)
 7. **Automated State Migration** - Seamless local → S3 transition
 
-**No separate state backend repository needed** - everything is self-contained.
-
 ---
 
 ## Prerequisites
@@ -70,27 +68,30 @@ aws --version
 git --version
 ```
 
-### 2. Create dev-admin User with Required Permissions
+### 2. Create bootstrap-dev User with Required Permissions
 
 **IMPORTANT**: This is a prerequisite step that must be completed **before** setting up OIDC. You need to create an IAM user with specific permissions to manage OIDC providers and IAM roles.
 
 ### Why This User?
 
-The `dev-admin` user will have explicit permissions to:
+The `bootstrap-dev` user will have explicit permissions to:
 - Create and manage OIDC identity providers
 - Create and manage IAM roles and policies
-- **Does NOT** include resource provisioning permissions (EC2, S3, etc.) or PassRole capability
+- Create and manage CloudTrial
+- Create and manage S3 for terraform state bucket
+- Create and manage DynamoDB table for terrafomr state lock
+- **Does NOT** include resource provisioning permissions (EC2, Lambda, Bedrock, etc.) or PassRole capability
 
 ### Create the User in AWS Console
 
 **In EACH AWS account (dev, qa, prod):**
 
 1. Go to **IAM Console** → **Users** → **Create user**
-2. Set username: `dev-admin`
+2. Set username: `bootstrap-dev`
 3. Select **Attach policies directly**
 4. Click **Create policy** (opens in new tab)
 
-### Create the dev-admin-policy
+### Create the bootstrap-dev-policy
 
 5. In the policy editor, select the **JSON** tab
 6. Paste the following policy:
@@ -237,20 +238,20 @@ The `dev-admin` user will have explicit permissions to:
 
 7. Click **Next**
 8. Set policy details:
-   - **Policy name**: `dev-admin-policy`
+   - **Policy name**: `bootstrap-dev-policy`
    - **Description**: `Grants permissions to manage OIDC identity providers, IAM roles/policies, CloudTrail logging, and policy simulation. Does not include resource provisioning permissions (EC2, Lambda, etc.) or PassRole capability.`
 9. Click **Create policy**
 
 ### Attach Policy to User
 
 10. Return to the **Create user** tab
-11. Refresh the policy list and search for `dev-admin-policy`
-12. Select the checkbox next to `dev-admin-policy`
+11. Refresh the policy list and search for `bootstrap-dev-policy`
+12. Select the checkbox next to `bootstrap-dev-policy`
 13. Click **Next** → **Create user**
 
 ### Create Access Keys
 
-14. Go to the newly created `dev-admin` user
+14. Go to the newly created `bootstrap-dev` user
 15. Navigate to **Security credentials** tab
 16. Click **Create access key**
 17. Select **Command Line Interface (CLI)**
@@ -261,14 +262,14 @@ The `dev-admin` user will have explicit permissions to:
 ### Configure AWS CLI Profile
 
 ```bash
-# Configure the dev-admin profile
-aws configure --profile dev-admin
+# Configure the bootstrap-dev profile
+aws configure --profile bootstrap-dev
 # Enter the Access Key ID and Secret Access Key from step 20 above
 # Set default region (e.g., eu-west-1)
 # Set output format (json)
 
 # Verify the profile
-aws sts get-caller-identity --profile dev-admin
+aws sts get-caller-identity --profile bootstrap-dev
 ```
 
 **Expected output:**
@@ -276,13 +277,13 @@ aws sts get-caller-identity --profile dev-admin
 {
     "UserId": "AIDAXXXXXXXXXXXXXXXXX",
     "Account": "111111111111",
-    "Arn": "arn:aws:iam::111111111111:user/dev-admin"
+    "Arn": "arn:aws:iam::111111111111:user/bootstrap-dev"
 }
 ```
 
-**Repeat this process** for QA and Prod AWS accounts to create the qa-admin and prod-admin profiles. (Note: You may wish to verify Dev is fully working first):
-- `qa-admin` profile
-- `prod-admin` profile (or `pro-admin`)
+**Repeat this process** for QA and Prod AWS accounts to create the bootstrap-qa and bootstrap-prod profiles. (Note: You may wish to verify Dev is fully working first):
+- `bootstrap-qa` profile
+- `bootstrap-prod` profile (or `bootstrap-prod`)
 
 ### 4. GitHub Information
 
@@ -485,22 +486,22 @@ Check each resource:
 
 ```bash
 # Verify OIDC provider
-aws iam list-open-id-connect-providers --profile dev-admin
+aws iam list-open-id-connect-providers --profile bootstrap-dev
 
 # Verify IAM role
-aws iam get-role --role-name github-actions-terraform-dev --profile dev-admin
+aws iam get-role --role-name github-actions-terraform-dev --profile bootstrap-dev
 
 # Verify S3 bucket (Terraform state)
-aws s3 ls --profile dev-admin | grep tfstate
+aws s3 ls --profile bootstrap-dev | grep tfstate
 
 # Verify DynamoDB table
-aws dynamodb describe-table --table-name terraform-state-locks-dev --profile dev-admin
+aws dynamodb describe-table --table-name terraform-state-locks-dev --profile bootstrap-dev
 
 # Verify CloudTrail (if enabled)
-aws cloudtrail get-trail-status --name github-actions-oidc-dev --profile dev-admin
+aws cloudtrail get-trail-status --name github-actions-oidc-dev --profile bootstrap-dev
 
 # Verify CloudTrail S3 bucket (if enabled)
-aws s3 ls --profile dev-admin | grep cloudtrail-logs
+aws s3 ls --profile bootstrap-dev | grep cloudtrail-logs
 ```
 
 ### 3.3: Save Outputs
@@ -609,7 +610,7 @@ Terraform has been successfully initialized!
 Check that state was uploaded:
 
 ```bash
-aws s3 ls s3://$BUCKET/bootstrap/ --profile dev-admin
+aws s3 ls s3://$BUCKET/bootstrap/ --profile bootstrap-dev
 ```
 
 **Expected output:**
@@ -658,17 +659,17 @@ aws_s3_bucket.terraform_state
 # Check S3 bucket versioning
 aws s3api get-bucket-versioning \
   --bucket $(terraform output -raw terraform_state_bucket) \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Check S3 encryption
 aws s3api get-bucket-encryption \
   --bucket $(terraform output -raw terraform_state_bucket) \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Check DynamoDB point-in-time recovery
 aws dynamodb describe-continuous-backups \
   --table-name $(terraform output -raw dynamodb_lock_table) \
-  --profile dev-admin
+  --profile bootstrap-dev
 ```
 
 ### 5.3: Test IAM Role Trust Policy
@@ -678,7 +679,7 @@ aws dynamodb describe-continuous-backups \
 aws iam get-role \
   --role-name github-actions-terraform-dev \
   --query 'Role.AssumeRolePolicyDocument' \
-  --profile dev-admin
+  --profile bootstrap-dev
 ```
 
 Verify the trust policy includes:
@@ -696,7 +697,7 @@ aws iam simulate-principal-policy \
   --policy-source-arn $(terraform output -raw github_actions_role_arn) \
   --action-names s3:PutObject \
   --resource-arns "arn:aws:s3:::$(terraform output -raw terraform_state_bucket)/*" \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Should show: EvalDecision: allowed
 ```
@@ -710,17 +711,17 @@ If you enabled CloudTrail, you can monitor OIDC authentication attempts:
 aws cloudtrail lookup-events \
   --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
   --max-results 10 \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Check CloudTrail status
 aws cloudtrail get-trail-status \
   --name github-actions-oidc-dev \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # View CloudTrail configuration
 aws cloudtrail get-trail \
   --name github-actions-oidc-dev \
-  --profile dev-admin
+  --profile bootstrap-dev
 ```
 
 **What CloudTrail Logs:**
@@ -846,7 +847,7 @@ git push origin main
 ## Multi-Environment Setup
 
 To set up QA and Prod environments:
-1. Create the `qa-admin` and `prod-admin` users in their respective AWS accounts (see [Prerequisites](#2-create-dev-admin-user-with-required-permissions))
+1. Create the `bootstrap-qa` and `bootstrap-prod` users in their respective AWS accounts (see [Prerequisites](#2-create-bootstrap-dev-user-with-required-permissions))
 2. Configure AWS CLI profiles for each environment
 3. Follow Steps 1-7 with environment-specific configurations
 
@@ -891,9 +892,9 @@ Set additional variables:
 
 ### Issue: "AccessDenied" when running terraform apply
 
-**Cause:** dev-admin user lacks required permissions.
+**Cause:** bootstrap-dev user lacks required permissions.
 
-**Solution:** Verify dev-admin policy includes all required permissions (see [Prerequisites - Create dev-admin User](#2-create-dev-admin-user-with-required-permissions)).
+**Solution:** Verify bootstrap-dev policy includes all required permissions (see [Prerequisites - Create bootstrap-dev User](#2-create-bootstrap-dev-user-with-required-permissions)).
 
 ### Issue: State migration fails
 
@@ -901,7 +902,7 @@ Set additional variables:
 
 **Solution:**
 1. Verify backend-config.hcl values
-2. Check S3 bucket exists: `aws s3 ls --profile dev-admin`
+2. Check S3 bucket exists: `aws s3 ls --profile bootstrap-dev`
 3. Restore from backup: `cp terraform.tfstate.backup terraform.tfstate`
 
 ### Issue: "Error acquiring the state lock"
@@ -914,7 +915,7 @@ Set additional variables:
 aws dynamodb get-item \
   --table-name terraform-state-locks-dev \
   --key '{"LockID": {"S": "yourcompany-tfstate-dev-002332700133/bootstrap/terraform.tfstate"}}' \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Force unlock (use with caution)
 terraform force-unlock <LOCK_ID>
@@ -1024,10 +1025,10 @@ statement {
 
 ### 2. Access Control
 
-- ✅ Use separate `dev-admin` user per environment
+- ✅ Use separate `bootstrap-dev` user per environment
 - ✅ Rotate access keys regularly
-- ✅ Enable MFA on dev-admin user
-- ✅ Use CloudTrail to monitor dev-admin activities
+- ✅ Enable MFA on bootstrap-dev user
+- ✅ Use CloudTrail to monitor bootstrap-dev activities
 
 ### 3. Infrastructure Changes
 

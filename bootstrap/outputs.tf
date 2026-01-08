@@ -111,7 +111,7 @@ output "next_steps" {
   
   3. Verify the setup:
      
-     aws sts get-caller-identity --profile dev-admin
+     aws sts get-caller-identity --profile bootstrap-dev
      aws s3 ls s3://${aws_s3_bucket.terraform_state.id}
      aws dynamodb describe-table --table-name ${aws_dynamodb_table.terraform_locks.id}
      ${var.enable_cloudtrail ? "aws cloudtrail get-trail-status --name ${aws_cloudtrail.github_actions_oidc[0].name}" : ""}

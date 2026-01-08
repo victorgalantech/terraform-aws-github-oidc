@@ -40,8 +40,8 @@ When GitHub Actions uses OIDC to access AWS, CloudTrail logs:
 
 ## Prerequisites
 
-- Completed [OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md) Step 1 (dev-admin user with CloudTrail permissions)
-- AWS CLI configured with `dev-admin` profile
+- Completed [OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md) Step 1 (bootstrap-dev user with CloudTrail permissions)
+- AWS CLI configured with `bootstrap-dev` profile
 - S3 bucket naming convention decided (e.g., `cloudtrail-logs-<account-id>-<region>`)
 
 ---
@@ -65,7 +65,7 @@ CloudTrail requires an S3 bucket to store log files.
 
 ```bash
 # Set variables
-export AWS_PROFILE=dev-admin
+export AWS_PROFILE=bootstrap-dev
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 REGION="eu-west-1"
 BUCKET_NAME="cloudtrail-logs-${ACCOUNT_ID}-${REGION}"
@@ -225,7 +225,7 @@ These events occur when GitHub Actions uses OIDC to authenticate:
 aws cloudtrail lookup-events \
   --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
   --region us-east-1 \
-  --profile dev-admin \
+  --profile bootstrap-dev \
   --max-results 5 \
   --query 'Events[*].[EventTime,Username,EventName]' \
   --output table
@@ -238,7 +238,7 @@ aws cloudtrail lookup-events \
 aws cloudtrail lookup-events \
   --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
   --region us-east-1 \
-  --profile dev-admin \
+  --profile bootstrap-dev \
   --max-results 1 \
   --query 'Events[0].CloudTrailEvent' \
   --output text | jq .
@@ -282,7 +282,7 @@ aws cloudtrail lookup-events \
   --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
   --start-time $START_TIME \
   --region us-east-1 \
-  --profile dev-admin \
+  --profile bootstrap-dev \
   --max-results 50
 ```
 
@@ -293,7 +293,7 @@ aws cloudtrail lookup-events \
 aws cloudtrail lookup-events \
   --lookup-attributes AttributeKey=Username,AttributeValue=github-actions-terraform-dev \
   --region us-east-1 \
-  --profile dev-admin \
+  --profile bootstrap-dev \
   --max-results 20 \
   --query 'Events[*].[EventTime,EventName,Resources[0].ResourceName]' \
   --output table
@@ -311,7 +311,7 @@ For real-time monitoring and alerting, send CloudTrail logs to CloudWatch:
 # Create CloudWatch log group
 aws logs create-log-group \
   --log-group-name /aws/cloudtrail/github-actions-oidc \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Create IAM role for CloudTrail to write to CloudWatch
 cat > cloudtrail-cloudwatch-role.json <<EOF
@@ -332,7 +332,7 @@ EOF
 aws iam create-role \
   --role-name CloudTrailToCloudWatchLogsRole \
   --assume-role-policy-document file://cloudtrail-cloudwatch-role.json \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Attach policy to role
 cat > cloudtrail-cloudwatch-policy.json <<EOF
@@ -355,16 +355,16 @@ aws iam put-role-policy \
   --role-name CloudTrailToCloudWatchLogsRole \
   --policy-name CloudTrailToCloudWatchLogsPolicy \
   --policy-document file://cloudtrail-cloudwatch-policy.json \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Update CloudTrail to use CloudWatch Logs
-ROLE_ARN=$(aws iam get-role --role-name CloudTrailToCloudWatchLogsRole --query 'Role.Arn' --output text --profile dev-admin)
+ROLE_ARN=$(aws iam get-role --role-name CloudTrailToCloudWatchLogsRole --query 'Role.Arn' --output text --profile bootstrap-dev)
 
 aws cloudtrail update-trail \
   --name github-actions-oidc-audit \
   --cloud-watch-logs-log-group-arn "arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:/aws/cloudtrail/github-actions-oidc:*" \
   --cloud-watch-logs-role-arn $ROLE_ARN \
-  --profile dev-admin
+  --profile bootstrap-dev
 ```
 
 ### Create CloudWatch Alarm for Failed OIDC Attempts
@@ -377,7 +377,7 @@ aws logs put-metric-filter \
   --filter-pattern '{ $.eventName = "AssumeRoleWithWebIdentity" && $.errorCode = "*" }' \
   --metric-transformations \
     metricName=FailedOIDCAttempts,metricNamespace=GitHubActions,metricValue=1 \
-  --profile dev-admin
+  --profile bootstrap-dev
 
 # Create alarm
 aws cloudwatch put-metric-alarm \
@@ -390,7 +390,7 @@ aws cloudwatch put-metric-alarm \
   --threshold 3 \
   --comparison-operator GreaterThanThreshold \
   --evaluation-periods 1 \
-  --profile dev-admin
+  --profile bootstrap-dev
 ```
 
 ---
@@ -428,7 +428,7 @@ aws cloudwatch put-metric-alarm \
 
 **Issue**: `AccessDenied` when running CloudTrail commands
 
-**Solution**: Verify `dev-admin` user has CloudTrail permissions (see [OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md) Step 1)
+**Solution**: Verify `bootstrap-dev` user has CloudTrail permissions (see [OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md) Step 1)
 
 ---
 

@@ -11,7 +11,7 @@ terraform {
 
 provider "aws" {
   region  = var.aws_region
-  profile = "dev-admin"
+  profile = "bootstrap-dev"
 
   default_tags {
     tags = merge(

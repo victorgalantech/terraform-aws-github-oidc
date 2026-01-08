@@ -70,7 +70,7 @@ This guide walks you through **manually** setting up OpenID Connect (OIDC) authe
 
 **Multi-Account Architecture**: Perform steps 1-5 in **each AWS account** (dev, qa, prod).
 
-1. **Create dev-admin User** with required IAM permissions (once per account)
+1. **Create bootstrap-dev User** with required IAM permissions (once per account)
 2. **Create OIDC Identity Provider** in AWS (once per account)
 3. **Create IAM Role** with trust policy for GitHub Actions (per environment/account)
 4. **Configure GitHub Variables** with Role ARNs
@@ -78,13 +78,13 @@ This guide walks you through **manually** setting up OpenID Connect (OIDC) authe
 
 ---
 
-## Step 1: Create dev-admin User with Required Permissions
+## Step 1: Create bootstrap-dev User with Required Permissions
 
 **IMPORTANT**: This is a prerequisite step that must be completed **before** setting up OIDC. You need to create an IAM user with specific permissions to manage OIDC providers and IAM roles.
 
 ### Why This User?
 
-The `dev-admin` user will have explicit permissions to:
+The `bootstrap-dev` user will have explicit permissions to:
 - Create and manage OIDC identity providers
 - Create and manage IAM roles and policies
 - **Does NOT** include resource provisioning permissions (EC2, S3, etc.) or PassRole capability
@@ -94,11 +94,11 @@ The `dev-admin` user will have explicit permissions to:
 **In EACH AWS account (dev, qa, prod):**
 
 1. Go to **IAM Console** → **Users** → **Create user**
-2. Set username: `dev-admin`
+2. Set username: `bootstrap-dev`
 3. Select **Attach policies directly**
 4. Click **Create policy** (opens in new tab)
 
-### Create the dev-admin-policy
+### Create the bootstrap-dev-policy
 
 5. In the policy editor, select the **JSON** tab
 6. Paste the following policy:
@@ -245,20 +245,20 @@ The `dev-admin` user will have explicit permissions to:
 
 7. Click **Next**
 8. Set policy details:
-   - **Policy name**: `dev-admin-policy`
+   - **Policy name**: `bootstrap-dev-policy`
    - **Description**: `Grants permissions to manage OIDC identity providers, IAM roles/policies, CloudTrail logging, and policy simulation. Does not include resource provisioning permissions (EC2, Lambda, etc.) or PassRole capability.`
 9. Click **Create policy**
 
 ### Attach Policy to User
 
 10. Return to the **Create user** tab
-11. Refresh the policy list and search for `dev-admin-policy`
-12. Select the checkbox next to `dev-admin-policy`
+11. Refresh the policy list and search for `bootstrap-dev-policy`
+12. Select the checkbox next to `bootstrap-dev-policy`
 13. Click **Next** → **Create user**
 
 ### Create Access Keys
 
-14. Go to the newly created `dev-admin` user
+14. Go to the newly created `bootstrap-dev` user
 15. Navigate to **Security credentials** tab
 16. Click **Create access key**
 17. Select **Command Line Interface (CLI)**
@@ -269,14 +269,14 @@ The `dev-admin` user will have explicit permissions to:
 ### Configure AWS CLI Profile
 
 ```bash
-# Configure the dev-admin profile
-aws configure --profile dev-admin
+# Configure the bootstrap-dev profile
+aws configure --profile bootstrap-dev
 # Enter the Access Key ID and Secret Access Key from Step 20
 # Set default region (e.g., eu-west-1)
 # Set output format (json)
 
 # Verify the profile
-aws sts get-caller-identity --profile dev-admin
+aws sts get-caller-identity --profile bootstrap-dev
 ```
 
 **Expected output:**
@@ -284,13 +284,13 @@ aws sts get-caller-identity --profile dev-admin
 {
     "UserId": "AIDAXXXXXXXXXXXXXXXXX",
     "Account": "111111111111",
-    "Arn": "arn:aws:iam::111111111111:user/dev-admin"
+    "Arn": "arn:aws:iam::111111111111:user/bootstrap-dev"
 }
 ```
 
-**Repeat this process** for QA and Prod AWS accounts to create the qa-admin and prod-admin profiles. (Note: You may wish to verify Dev is fully working first):
-- `qa-admin` profile
-- `prod-admin` profile (or `pro-admin`)
+**Repeat this process** for QA and Prod AWS accounts to create the bootstrap-qa and bootstrap-prod profiles. (Note: You may wish to verify Dev is fully working first):
+- `bootstrap-qa` profile
+- `bootstrap-prod` profile (or `pro-admin`)
 
 ---
 
@@ -386,7 +386,7 @@ Create a file `github-trust-policy.json`:
 
 ```bash
 # Switch to Dev AWS Account
-export AWS_PROFILE=dev-admin
+export AWS_PROFILE=bootstrap-dev
 
 # Get your AWS account ID
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -527,13 +527,13 @@ At this point, you have completed the setup for the **Dev environment**. Let's v
 
 ```bash
 # 1. Verify OIDC Provider exists
-aws iam list-open-id-connect-providers --profile dev-admin
+aws iam list-open-id-connect-providers --profile bootstrap-dev
 
 # 2. Verify IAM Role exists
-aws iam get-role --role-name github-actions-terraform-dev --profile dev-admin
+aws iam get-role --role-name github-actions-terraform-dev --profile bootstrap-dev
 
 # 3. Verify attached policies
-aws iam list-attached-role-policies --role-name github-actions-terraform-dev --profile dev-admin
+aws iam list-attached-role-policies --role-name github-actions-terraform-dev --profile bootstrap-dev
 ```
 
 ### 📋 Recap: What You've Created in Dev Account
@@ -542,8 +542,8 @@ By completing Steps 1-3, you have created the following AWS resources in your **
 
 | Resource Type | Resource Name | Purpose |
 |--------------|---------------|---------|
-| **IAM User** | `dev-admin` | Administrative user with permissions to manage OIDC and IAM roles |
-| **IAM Policy** | `dev-admin-policy` | Grants `dev-admin` user permissions to create/manage OIDC providers and IAM roles |
+| **IAM User** | `bootstrap-dev` | Administrative user with permissions to manage OIDC and IAM roles |
+| **IAM Policy** | `bootstrap-dev-policy` | Grants `bootstrap-dev` user permissions to create/manage OIDC providers and IAM roles |
 | **OIDC Identity Provider** | `token.actions.githubusercontent.com` | Establishes trust between AWS and GitHub Actions |
 | **IAM Role** | `github-actions-terraform-dev` | Role that GitHub Actions will assume via OIDC |
 | **IAM Policy** | `TerraformDeploymentPolicy` | Organization-wide deployment policy for managing AWS resources (currently S3 and DynamoDB, expandable for Lambdas, Fargate, Glue, Bedrock, etc.) |
@@ -577,7 +577,7 @@ Access to: S3, DynamoDB, Lambda, Fargate, Glue, Bedrock, etc.
 
 **Important Notes:**
 - This setup is **per AWS account** (currently completed for Dev)
-- The `dev-admin` user credentials should be stored securely (AWS CLI profile)
+- The `bootstrap-dev` user credentials should be stored securely (AWS CLI profile)
 - The GitHub Actions role ARN will be needed in Step 4 for GitHub Variables
 - You must repeat this process for QA and Prod accounts with their respective naming conventions
 
@@ -600,7 +600,7 @@ Once you have validated the dev setup works correctly, you can proceed to create
 
 **Switch to QA account:**
 ```bash
-export AWS_PROFILE=qa-admin
+export AWS_PROFILE=bootstrap-qa
 
 # Repeat the following:
 # - Step 2: Create OIDC Provider
@@ -610,7 +610,7 @@ export AWS_PROFILE=qa-admin
 
 **Switch to Prod account:**
 ```bash
-export AWS_PROFILE=prod-admin
+export AWS_PROFILE=bootstrap-prod
 
 # Repeat the following:
 # - Step 2: Create OIDC Provider
@@ -818,7 +818,7 @@ Enable CloudTrail logging and set up CloudWatch alarms for:
 aws cloudtrail lookup-events \
   --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
   --region us-east-1 \
-  --profile dev-admin \
+  --profile bootstrap-dev \
   --query 'Events[0].CloudTrailEvent' --output text
 ```
 

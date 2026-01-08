@@ -3,7 +3,7 @@
 [![AWS](https://img.shields.io/badge/AWS-IAM%20%7C%20OIDC-FF9900?logo=amazon-aws)](https://aws.amazon.com/)
 [![Terraform](https://img.shields.io/badge/Terraform-1.6%2B-7B42BC?logo=terraform)](https://www.terraform.io/)
 
-**Complete Terraform bootstrap for GitHub Actions on AWS using OpenID Connect (OIDC), including automated S3 state backend and DynamoDB locking.**
+**Complete Terraform bootstrap for GitHub Actions on AWS using OpenID Connect (OIDC), AWS CloudTrail to monitor and audit GitHub Actions OIDC authentication and activities, including automated S3 state backend and DynamoDB locking.**
 
 This repository provides everything you need to bootstrap your AWS CI/CD infrastructure with secure, keyless authentication and proper Terraform state management - all in one place.
 
@@ -50,7 +50,7 @@ Setting up GitHub Actions with AWS traditionally requires:
 - **AWS account(s)** - one per environment (dev, qa, prod)
 - **GitHub repository** with Actions enabled
 - **AWS CLI** installed and configured
-- **Admin access** to AWS console (for initial `dev-admin` user creation)
+- **Admin access** to AWS console (for initial `bootstrap-dev` user creation)
 - **Permissions** to create IAM users, identity providers, and roles
 
 ---
@@ -64,9 +64,9 @@ Setting up GitHub Actions with AWS traditionally requires:
 👉 **Follow [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md) for complete instructions**
 
 **Summary:**
-1. **Create dev-admin IAM user** (one-time manual setup)
+1. **Create bootstrap-dev IAM user** (one-time manual setup)
 2. **Configure Terraform variables** (`terraform.tfvars`)
-3. **Run Terraform** to create OIDC provider, IAM roles, S3 backend, and DynamoDB table
+3. **Run Terraform** to create OIDC provider, CloudtTrial, IAM roles, S3 backend, and DynamoDB table
 4. **Migrate state** to S3 backend automatically
 5. **Configure GitHub Variables** with role ARN
 6. **Test workflow** - done!
