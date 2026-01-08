@@ -1,17 +1,15 @@
-# GitHub Actions OIDC Setup Guide for AWS
+# GitHub Actions OIDC Setup Guide for AWS (Manual Setup)
 
-This guide walks you through setting up OpenID Connect (OIDC) authentication between GitHub Actions and AWS for secure, keyless deployments.
+This guide walks you through **manually** setting up OpenID Connect (OIDC) authentication between GitHub Actions and AWS for secure, keyless deployments.
+
+> **🏗️ Looking for automated setup?** See **[TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md)** for a fully automated Terraform approach with automatic S3 backend creation and state migration.
 
 > **📖 Related Documentation:**
+> - **[TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md)** - Automated Terraform bootstrap (recommended)
 > - **[AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md)** - IAM policy reference and examples
 > - **[CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md)** - CloudTrail logging and monitoring setup (recommended after Step 3)
 
 ## 📋 Table of Contents
-
-- [Why OIDC?](#why-oidc)
-- [Prerequisites](#prerequisites)
-- [Setup Overview](#setup-overview)
-- [Step 1: Create dev-admin User with Required Permissions](#step-1-create-dev-admin-user-with-required-permissions)
 - [Step 2: Create OIDC Identity Provider in AWS](#step-2-create-oidc-identity-provider-in-aws)
 - [Step 3: Create IAM Roles per Environment](#step-3-create-iam-roles-per-environment)
 - [Step 4: Configure GitHub Variables](#step-4-configure-github-variables)
@@ -164,6 +162,59 @@ The `dev-admin` user will have explicit permissions to:
                 "cloudtrail:RemoveTags"
             ],
             "Resource": "*"
+        },
+        {
+            "Sid": "ManageS3ForTerraform",
+            "Effect": "Allow",
+            "Action": [
+                "s3:CreateBucket",
+                "s3:DeleteBucket",
+                "s3:ListBucket",
+                "s3:GetBucketLocation",
+                "s3:GetBucketVersioning",
+                "s3:PutBucketVersioning",
+                "s3:GetBucketEncryption",
+                "s3:PutBucketEncryption",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:PutBucketPublicAccessBlock",
+                "s3:GetBucketPolicy",
+                "s3:PutBucketPolicy",
+                "s3:DeleteBucketPolicy",
+                "s3:GetBucketTagging",
+                "s3:PutBucketTagging",
+                "s3:GetLifecycleConfiguration",
+                "s3:PutLifecycleConfiguration",
+                "s3:GetBucketAcl",
+                "s3:PutBucketAcl",
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:ListAllMyBuckets"
+            ],
+            "Resource": [
+                "arn:aws:s3:::*-tfstate-*",
+                "arn:aws:s3:::*-tfstate-*/*"
+            ]
+        },
+        {
+            "Sid": "ManageDynamoDBForTerraform",
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:CreateTable",
+                "dynamodb:DeleteTable",
+                "dynamodb:DescribeTable",
+                "dynamodb:DescribeContinuousBackups",
+                "dynamodb:UpdateContinuousBackups",
+                "dynamodb:ListTables",
+                "dynamodb:ListTagsOfResource",
+                "dynamodb:TagResource",
+                "dynamodb:UntagResource",
+                "dynamodb:UpdateTable",
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:DeleteItem"
+            ],
+            "Resource": "arn:aws:dynamodb:*:*:table/terraform-state-locks-*"
         },
         {
             "Sid": "ManageS3ForCloudTrail",

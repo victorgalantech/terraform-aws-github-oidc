@@ -3,7 +3,8 @@
 This document provides IAM policy reference and examples for GitHub Actions OIDC authentication with AWS.
 
 > **📖 Related Documentation:**
-> - **[OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md)** - Complete step-by-step OIDC setup instructions
+> - **[TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md)** - Automated Terraform bootstrap (recommended)
+> - **[OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md)** - Manual step-by-step OIDC setup instructions
 > - **[CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md)** - CloudTrail logging and monitoring setup
 > - **[README.md](README.md)** - Project overview and quick start
 
