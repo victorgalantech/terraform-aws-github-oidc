@@ -124,6 +124,7 @@ The `bootstrap-dev` user will have explicit permissions to:
                 "iam:ListRoles",
                 "iam:TagRole",
                 "iam:AttachRolePolicy",
+                "iam:ListRolePolicies",
                 "iam:DetachRolePolicy",
                 "iam:PutRolePolicy",
                 "iam:DeleteRolePolicy",
@@ -132,7 +133,11 @@ The `bootstrap-dev` user will have explicit permissions to:
                 "iam:GetPolicy",
                 "iam:ListPolicies",
                 "iam:ListAttachedRolePolicies",
-                "iam:SimulatePrincipalPolicy"
+                "iam:SimulatePrincipalPolicy",
+                "iam:TagPolicy",
+                "iam:ListInstanceProfilesForRole",
+                "iam:GetPolicyVersion",
+                "iam:ListPolicyVersions"
             ],
             "Resource": "*"
         },
@@ -166,8 +171,6 @@ The `bootstrap-dev` user will have explicit permissions to:
                 "s3:GetBucketLocation",
                 "s3:GetBucketVersioning",
                 "s3:PutBucketVersioning",
-                "s3:GetBucketEncryption",
-                "s3:PutBucketEncryption",
                 "s3:GetBucketPublicAccessBlock",
                 "s3:PutBucketPublicAccessBlock",
                 "s3:GetBucketPolicy",
@@ -182,7 +185,17 @@ The `bootstrap-dev` user will have explicit permissions to:
                 "s3:GetObject",
                 "s3:PutObject",
                 "s3:DeleteObject",
-                "s3:ListAllMyBuckets"
+                "s3:ListAllMyBuckets",
+                "s3:GetBucketCORS",
+                "s3:GetBucketWebsite",
+                "s3:GetBucketAcl",
+                "s3:GetAccelerateConfiguration",
+                "s3:GetBucketRequestPayment",
+                "s3:GetBucketLogging",
+                "s3:GetReplicationConfiguration",
+                "s3:GetEncryptionConfiguration",
+                "s3:GetBucketObjectLockConfiguration",
+                "s3:PutEncryptionConfiguration"
             ],
             "Resource": [
                 "arn:aws:s3:::*-tfstate-*",
@@ -205,7 +218,8 @@ The `bootstrap-dev` user will have explicit permissions to:
                 "dynamodb:UpdateTable",
                 "dynamodb:PutItem",
                 "dynamodb:GetItem",
-                "dynamodb:DeleteItem"
+                "dynamodb:DeleteItem",
+                "dynamodb:DescribeTimeToLive"
             ],
             "Resource": "arn:aws:dynamodb:*:*:table/terraform-state-locks-*"
         },
@@ -217,7 +231,24 @@ The `bootstrap-dev` user will have explicit permissions to:
                 "s3:PutBucketPolicy",
                 "s3:GetBucketPolicy",
                 "s3:PutBucketPublicAccessBlock",
-                "s3:ListBucket"
+                "s3:ListBucket",
+                "s3:GetBucketTagging",
+                "s3:GetBucketAcl",
+                "s3:GetBucketCORS",
+                "s3:GetBucketWebsite",
+                "s3:GetBucketVersioning",
+                "s3:GetAccelerateConfiguration",
+                "s3:GetBucketRequestPayment",
+                "s3:GetBucketLogging",
+                "s3:GetReplicationConfiguration",
+                "s3:GetEncryptionConfiguration",
+                "s3:GetBucketObjectLockConfiguration",
+                "s3:GetLifecycleConfiguration",
+                "s3:DeleteBucket",
+                "s3:PutBucketTagging",
+                "s3:GetBucketPublicAccessBlock",
+                "s3:PutLifecycleConfiguration",
+                "s3:DeleteBucketPolicy"
             ],
             "Resource": "arn:aws:s3:::cloudtrail-logs-*"
         },
@@ -239,7 +270,7 @@ The `bootstrap-dev` user will have explicit permissions to:
 7. Click **Next**
 8. Set policy details:
    - **Policy name**: `bootstrap-dev-policy`
-   - **Description**: `Grants permissions to manage OIDC identity providers, IAM roles/policies, CloudTrail logging, and policy simulation. Does not include resource provisioning permissions (EC2, Lambda, etc.) or PassRole capability.`
+   - **Description**: `Grants permissions to manage OIDC identity providers, IAM roles and policies, CloudTrail logging, and policy simulation. Does not include resource provisioning permissions -EC2, Lambda, etc.- or PassRole capability.`
 9. Click **Create policy**
 
 ### Attach Policy to User
@@ -291,28 +322,6 @@ You'll need:
 - GitHub organization name
 - GitHub repository name (or use `*` for all repos in org)
 - Repository admin access (to set GitHub variables)
-
----
-
-## Project Structure
-
-```
-terraform-aws-oidc-bootstrap/
-├── bootstrap/
-│   ├── bootstrap.tf          # Main infrastructure definition
-│   ├── variables.tf          # Input variables
-│   ├── outputs.tf            # Output values
-│   ├── backend.tf            # S3 backend config (for post-migration)
-│   ├── terraform.tfvars.example  # Example variables file
-│   └── .gitignore           # Terraform-specific gitignore
-├── TERRAFORM_BOOTSTRAP_GUIDE.md  # This file (primary guide)
-├── OIDC_SETUP_GUIDE.md      # Manual setup alternative
-├── CLOUDTRAIL_SETUP.md      # CloudTrail setup guide
-├── AWS_IAM_POLICIES.md      # IAM policy reference
-└── README.md                # Project overview
-
-All-in-one solution - no external dependencies for state management.
-```
 
 ---
 
