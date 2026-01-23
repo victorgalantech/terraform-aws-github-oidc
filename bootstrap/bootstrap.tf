@@ -9,9 +9,17 @@ terraform {
   }
 }
 
+locals {
+  profile_map = {
+    dev  = "bootstrap-dev"
+    qa   = "bootstrap-qa"
+    prod = "bootstrap-prod"
+  }
+}
+
 provider "aws" {
   region  = var.aws_region
-  profile = "bootstrap-dev"
+  profile = local.profile_map[var.environment]
 
   default_tags {
     tags = merge(
@@ -77,20 +85,23 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 data "aws_iam_policy_document" "github_actions_assume_role" {
   statement {
     effect = "Allow"
-
+ 
     principals {
       type        = "Federated"
       identifiers = [aws_iam_openid_connect_provider.github_actions.arn]
     }
-
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-
+ 
+    actions = [
+      "sts:AssumeRoleWithWebIdentity",
+      "sts:TagSession"  # ABAC: Allow tagging sessions
+    ]
+ 
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-
+ 
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
@@ -102,11 +113,33 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 resource "aws_iam_role" "github_actions" {
   name               = "github-actions-terraform-${var.environment}"
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume_role.json
-  description        = "GitHub Actions OIDC role for ${var.environment} environment"
-
-  tags = {
-    Name = "github-actions-terraform-${var.environment}"
+  description        = "GitHub Actions OIDC role for ${var.environment} environment with ABAC support"
+  
+  # ABAC: Define which tags can be set during assume role
+  dynamic "inline_policy" {
+    for_each = var.enable_abac ? [1] : []
+    content {
+      name = "AllowSessionTagging"
+      policy = jsonencode({
+        Version = "2012-10-17"
+        Statement = [
+          {
+            Sid    = "AllowPassSessionTags"
+            Effect = "Allow"
+            Action = "sts:TagSession"
+            Resource = "*"
+          }
+        ]
+      })
+    }
   }
+ 
+  tags = merge(
+    var.default_resource_tags,
+    {
+      Name = "github-actions-terraform-${var.environment}"
+    }
+  )
 }
 
 # ================================================
@@ -114,9 +147,9 @@ resource "aws_iam_role" "github_actions" {
 # ================================================
 
 data "aws_iam_policy_document" "terraform_deployment" {
-  # S3 Bucket Management
+  # S3 State Bucket Management - Shared across ALL projects
   statement {
-    sid    = "S3BucketManagement"
+    sid    = "S3StateBucketManagement"
     effect = "Allow"
 
     actions = [
@@ -141,14 +174,89 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "s3:PutBucketAcl"
     ]
 
-    resources = [
-      "arn:aws:s3:::${var.company_name}-tfstate-*"
-    ]
+    resources = var.enable_abac ? ["*"] : ["arn:aws:s3:::${var.company_name}-tfstate-*"]
+
+    # ABAC: Match environment tag (NO projectID restriction - shared backend)
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "s3:ResourceTag/environment"
+        values   = ["$${aws:PrincipalTag/environment}"]
+      }
+    }
+
+    # ABAC: Ensure resource type is state-backend
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "s3:ResourceTag/resource-type"
+        values   = ["state-backend"]
+      }
+    }
+
+    # ABAC: Ensure managed-by terraform
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "s3:ResourceTag/managed-by"
+        values   = ["terraform"]
+      }
+    }
   }
 
-  # S3 Object Management
+  # S3 State Objects - ListBucket operation (for Terraform init/backend config)
   statement {
-    sid    = "S3ObjectManagement"
+    sid    = "S3StateListBucket"
+    effect = "Allow"
+
+    actions = [
+      "s3:ListBucket"
+    ]
+
+    resources = var.enable_abac ? ["*"] : ["arn:aws:s3:::${var.company_name}-tfstate-*"]
+
+    # ABAC: Match environment tag
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "s3:ResourceTag/environment"
+        values   = ["$${aws:PrincipalTag/environment}"]
+      }
+    }
+
+    # ABAC: Ensure resource type is state-backend
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "s3:ResourceTag/resource-type"
+        values   = ["state-backend"]
+      }
+    }
+
+    # ABAC: Restrict ListBucket to only list own projectID prefix
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringLike"
+        variable = "s3:prefix"
+        values   = [
+          "$${aws:PrincipalTag/projectID}/*",
+          "$${aws:PrincipalTag/projectID}"
+        ]
+      }
+    }
+  }
+
+  # S3 State Objects - Project-isolated by key pattern (CRITICAL SECURITY)
+  # When ABAC enabled: Uses dynamic resource pattern with projectID
+  # When RBAC enabled: Uses company name pattern
+  statement {
+    sid    = "S3StateObjectsProjectIsolated"
     effect = "Allow"
 
     actions = [
@@ -159,14 +267,23 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "s3:DeleteObjectVersion"
     ]
 
-    resources = [
+    # ABAC: Resource pattern embeds projectID from principal tag
+    # This restricts each project to ONLY their own state file path
+    # Example: marketing-ai can only access ${bucket}/marketing-ai/*
+    resources = var.enable_abac ? [
+      "arn:aws:s3:::${var.company_name}-tfstate-${var.environment}-*/$${aws:PrincipalTag/projectID}/*"
+    ] : [
       "arn:aws:s3:::${var.company_name}-tfstate-*/*"
     ]
+
+    # Note: With ABAC, the projectID in the resource ARN pattern enforces isolation
+    # marketing-ai session → can only access s3://bucket/marketing-ai/*
+    # dataplatform session → can only access s3://bucket/dataplatform/*
   }
 
-  # DynamoDB Table Management
+  # DynamoDB Lock Table Management - Shared across ALL projects
   statement {
-    sid    = "DynamoDBTableManagement"
+    sid    = "DynamoDBLockTableManagement"
     effect = "Allow"
 
     actions = [
@@ -182,14 +299,34 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "dynamodb:UpdateTable"
     ]
 
-    resources = [
+    resources = var.enable_abac ? ["*"] : [
       "arn:aws:dynamodb:${local.region}:${local.account_id}:table/terraform-state-locks-${var.environment}"
     ]
+
+    # ABAC: Match environment tag (NO projectID restriction)
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "dynamodb:ResourceTag/environment"
+        values   = ["$${aws:PrincipalTag/environment}"]
+      }
+    }
+
+    # ABAC: Ensure resource type is state-backend
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "dynamodb:ResourceTag/resource-type"
+        values   = ["state-backend"]
+      }
+    }
   }
 
-  # DynamoDB State Locking
+  # DynamoDB State Locking - Project-isolated by LockID prefix (CRITICAL SECURITY)
   statement {
-    sid    = "DynamoDBStateLocking"
+    sid    = "DynamoDBStateLockingProjectIsolated"
     effect = "Allow"
 
     actions = [
@@ -199,13 +336,127 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "dynamodb:DescribeTable"
     ]
 
-    resources = [
+    resources = var.enable_abac ? ["*"] : [
       "arn:aws:dynamodb:${local.region}:${local.account_id}:table/terraform-state-locks-${var.environment}"
     ]
+
+    # ABAC: Match environment tag
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "dynamodb:ResourceTag/environment"
+        values   = ["$${aws:PrincipalTag/environment}"]
+      }
+    }
+
+    # ABAC: Ensure resource type is state-backend
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "StringEquals"
+        variable = "dynamodb:ResourceTag/resource-type"
+        values   = ["state-backend"]
+      }
+    }
+
+    # ABAC: Restrict to projectID lock prefix (CRITICAL SECURITY)
+    # Each project can ONLY access lock records for their own state files
+    # LockID format: "projectID/terraform.tfstate-md5"
+    # Example: marketing-ai can only access locks starting with "marketing-ai/"
+    dynamic "condition" {
+      for_each = var.enable_abac ? [1] : []
+      content {
+        test     = "ForAllValues:StringLike"
+        variable = "dynamodb:LeadingKeys"
+        values   = ["$${aws:PrincipalTag/projectID}/*"]
+      }
+    }
+  }
+ 
+  # ABAC: Require tags on resource creation
+  dynamic "statement" {
+    for_each = var.enable_abac ? [1] : []
+    content {
+      sid    = "RequireResourceTagsOnCreation"
+      effect = "Allow"
+      
+      actions = [
+        "s3:CreateBucket",
+        "dynamodb:CreateTable"
+      ]
+      
+      resources = ["*"]
+      
+      # Require projectID tag matches principal
+      condition {
+        test     = "StringEquals"
+        variable = "aws:RequestTag/projectID"
+        values   = ["$${aws:PrincipalTag/projectID}"]
+      }
+      
+      # Require environment tag matches principal
+      condition {
+        test     = "StringEquals"
+        variable = "aws:RequestTag/environment"
+        values   = ["$${aws:PrincipalTag/environment}"]
+      }
+      
+      # Require managed-by tag
+      condition {
+        test     = "StringEquals"
+        variable = "aws:RequestTag/managed-by"
+        values   = ["terraform"]
+      }
+    }
   }
 
-  # Add additional permissions here as needed
-  # Examples: Lambda, Fargate, Glue, Bedrock, etc.
+  # Allow listing operations (no tag restrictions needed)
+  statement {
+    sid    = "AllowListOperations"
+    effect = "Allow"
+    
+    actions = [
+      "s3:ListAllMyBuckets",
+      "dynamodb:ListTables"
+    ]
+    
+    resources = ["*"]
+  }
+
+  # ================================================================
+  # FUTURE: Add project-specific resources below with projectID ABAC
+  # ================================================================
+  # When adding Lambda, ECS, Glue, Bedrock, or other resources that should
+  # be isolated per project, use this pattern:
+  #
+  # statement {
+  #   sid    = "LambdaManagementProjectSpecific"
+  #   effect = "Allow"
+  #   actions = ["lambda:*"]
+  #   resources = var.enable_abac ? ["*"] : ["arn:aws:lambda:${local.region}:${local.account_id}:function:*"]
+  #
+  #   # ABAC: Require projectID match for project-specific resources
+  #   dynamic "condition" {
+  #     for_each = var.enable_abac ? [1] : []
+  #     content {
+  #       test     = "StringEquals"
+  #       variable = "lambda:ResourceTag/projectID"
+  #       values   = ["$${aws:PrincipalTag/projectID}"]
+  #     }
+  #   }
+  #
+  #   dynamic "condition" {
+  #     for_each = var.enable_abac ? [1] : []
+  #     content {
+  #       test     = "StringEquals"
+  #       variable = "lambda:ResourceTag/environment"
+  #       values   = ["$${aws:PrincipalTag/environment}"]
+  #     }
+  #   }
+  #
+  #   # DO NOT add resource-type condition for project-specific resources
+  # }
 }
 
 resource "aws_iam_policy" "terraform_deployment" {
@@ -230,9 +481,16 @@ resource "aws_iam_role_policy_attachment" "github_actions_terraform_deployment" 
 resource "aws_s3_bucket" "terraform_state" {
   bucket = local.tfstate_bucket_name
 
-  tags = {
-    Name = local.tfstate_bucket_name
-  }
+  tags = merge(
+    var.default_resource_tags,
+    {
+      Name          = local.tfstate_bucket_name
+      projectID     = var.project_id
+      environment   = var.environment
+      managed-by    = "terraform"
+      resource-type = "state-backend"  # Shared across ALL projects
+    }
+  )
 }
 
 resource "aws_s3_bucket_versioning" "terraform_state" {
@@ -293,9 +551,16 @@ resource "aws_dynamodb_table" "terraform_locks" {
     enabled = true
   }
 
-  tags = {
-    Name = "terraform-state-locks-${var.environment}"
-  }
+  tags = merge(
+    var.default_resource_tags,
+    {
+      Name          = "terraform-state-locks-${var.environment}"
+      projectID     = var.project_id
+      environment   = var.environment
+      managed-by    = "terraform"
+      resource-type = "state-backend"  # Shared across ALL projects
+    }
+  )
 }
 
 # ================================================
