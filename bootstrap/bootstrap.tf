@@ -147,36 +147,26 @@ resource "aws_iam_role" "github_actions" {
 # ================================================
 
 data "aws_iam_policy_document" "terraform_deployment" {
-  # S3 State Bucket Management - Shared across ALL projects
+  # S3 State Bucket Management - Read-only for all projects
   statement {
-    sid    = "S3StateBucketManagement"
+    sid    = "S3StateBucketReadOnly"
     effect = "Allow"
 
     actions = [
-      "s3:CreateBucket",
-      "s3:DeleteBucket",
       "s3:ListBucket",
       "s3:GetBucketLocation",
       "s3:GetBucketVersioning",
-      "s3:PutBucketVersioning",
       "s3:GetBucketEncryption",
-      "s3:PutBucketEncryption",
       "s3:GetBucketPublicAccessBlock",
-      "s3:PutBucketPublicAccessBlock",
       "s3:GetBucketPolicy",
-      "s3:PutBucketPolicy",
-      "s3:DeleteBucketPolicy",
       "s3:GetBucketTagging",
-      "s3:PutBucketTagging",
       "s3:GetLifecycleConfiguration",
-      "s3:PutLifecycleConfiguration",
-      "s3:GetBucketAcl",
-      "s3:PutBucketAcl"
+      "s3:GetBucketAcl"
     ]
 
     resources = var.enable_abac ? ["*"] : ["arn:aws:s3:::${var.company_name}-tfstate-*"]
 
-    # ABAC: Match environment tag (NO projectID restriction - shared backend)
+    # ABAC: Match environment tag
     dynamic "condition" {
       for_each = var.enable_abac ? [1] : []
       content {
@@ -195,14 +185,49 @@ data "aws_iam_policy_document" "terraform_deployment" {
         values   = ["state-backend"]
       }
     }
+  }
 
-    # ABAC: Ensure managed-by terraform
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
+  # S3 State Bucket Management - Destructive operations ONLY for bootstrap
+  dynamic "statement" {
+    for_each = var.enable_abac ? [1] : []
+    content {
+      sid    = "S3StateBucketManagementBootstrapOnly"
+      effect = "Allow"
+
+      actions = [
+        "s3:CreateBucket",
+        "s3:DeleteBucket",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketEncryption",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutBucketTagging",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketAcl"
+      ]
+
+      resources = ["*"]
+
+      # SECURITY: Only bootstrap project can create/delete buckets
+      condition {
         test     = "StringEquals"
-        variable = "s3:ResourceTag/managed-by"
-        values   = ["terraform"]
+        variable = "aws:PrincipalTag/projectID"
+        values   = ["bootstrap"]
+      }
+
+      # ABAC: Match environment tag
+      condition {
+        test     = "StringEquals"
+        variable = "s3:ResourceTag/environment"
+        values   = ["$${aws:PrincipalTag/environment}"]
+      }
+
+      # ABAC: Ensure resource type is state-backend
+      condition {
+        test     = "StringEquals"
+        variable = "s3:ResourceTag/resource-type"
+        values   = ["state-backend"]
       }
     }
   }
@@ -281,29 +306,23 @@ data "aws_iam_policy_document" "terraform_deployment" {
     # dataplatform session → can only access s3://bucket/dataplatform/*
   }
 
-  # DynamoDB Lock Table Management - Shared across ALL projects
+  # DynamoDB Lock Table Management - Read-only for all projects
   statement {
-    sid    = "DynamoDBLockTableManagement"
+    sid    = "DynamoDBLockTableReadOnly"
     effect = "Allow"
 
     actions = [
-      "dynamodb:CreateTable",
-      "dynamodb:DeleteTable",
       "dynamodb:DescribeTable",
       "dynamodb:DescribeContinuousBackups",
-      "dynamodb:UpdateContinuousBackups",
       "dynamodb:ListTables",
-      "dynamodb:ListTagsOfResource",
-      "dynamodb:TagResource",
-      "dynamodb:UntagResource",
-      "dynamodb:UpdateTable"
+      "dynamodb:ListTagsOfResource"
     ]
 
     resources = var.enable_abac ? ["*"] : [
       "arn:aws:dynamodb:${local.region}:${local.account_id}:table/terraform-state-locks-${var.environment}"
     ]
 
-    # ABAC: Match environment tag (NO projectID restriction)
+    # ABAC: Match environment tag
     dynamic "condition" {
       for_each = var.enable_abac ? [1] : []
       content {
@@ -317,6 +336,47 @@ data "aws_iam_policy_document" "terraform_deployment" {
     dynamic "condition" {
       for_each = var.enable_abac ? [1] : []
       content {
+        test     = "StringEquals"
+        variable = "dynamodb:ResourceTag/resource-type"
+        values   = ["state-backend"]
+      }
+    }
+  }
+
+  # DynamoDB Lock Table Management - Destructive operations ONLY for bootstrap
+  dynamic "statement" {
+    for_each = var.enable_abac ? [1] : []
+    content {
+      sid    = "DynamoDBLockTableManagementBootstrapOnly"
+      effect = "Allow"
+
+      actions = [
+        "dynamodb:CreateTable",
+        "dynamodb:DeleteTable",
+        "dynamodb:UpdateContinuousBackups",
+        "dynamodb:TagResource",
+        "dynamodb:UntagResource",
+        "dynamodb:UpdateTable"
+      ]
+
+      resources = ["*"]
+
+      # SECURITY: Only bootstrap project can create/delete tables
+      condition {
+        test     = "StringEquals"
+        variable = "aws:PrincipalTag/projectID"
+        values   = ["bootstrap"]
+      }
+
+      # ABAC: Match environment tag
+      condition {
+        test     = "StringEquals"
+        variable = "dynamodb:ResourceTag/environment"
+        values   = ["$${aws:PrincipalTag/environment}"]
+      }
+
+      # ABAC: Ensure resource type is state-backend
+      condition {
         test     = "StringEquals"
         variable = "dynamodb:ResourceTag/resource-type"
         values   = ["state-backend"]
@@ -520,6 +580,64 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
   restrict_public_buckets = true
 }
 
+# Bucket policy to enforce secure transport (TLS 1.2+) and encrypted requests
+data "aws_iam_policy_document" "terraform_state_bucket_policy" {
+  # Deny non-HTTPS requests
+  statement {
+    sid    = "DenyInsecureTransport"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions = ["s3:*"]
+
+    resources = [
+      aws_s3_bucket.terraform_state.arn,
+      "${aws_s3_bucket.terraform_state.arn}/*"
+    ]
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  # Enforce TLS 1.2 or higher
+  statement {
+    sid    = "EnforceTLS12OrHigher"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions = ["s3:*"]
+
+    resources = [
+      aws_s3_bucket.terraform_state.arn,
+      "${aws_s3_bucket.terraform_state.arn}/*"
+    ]
+
+    condition {
+      test     = "NumericLessThan"
+      variable = "s3:TlsVersion"
+      values   = ["1.2"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+  policy = data.aws_iam_policy_document.terraform_state_bucket_policy.json
+
+  depends_on = [aws_s3_bucket_public_access_block.terraform_state]
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
@@ -564,18 +682,67 @@ resource "aws_dynamodb_table" "terraform_locks" {
 }
 
 # ================================================
-# CloudTrail for OIDC Audit Logging (Optional)
+# CloudTrail for Centralized Audit Logging
 # ================================================
 
+# S3 Bucket with Object Lock (Immutable Audit Logs)
 resource "aws_s3_bucket" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = local.cloudtrail_bucket_name
 
-  tags = {
-    Name = local.cloudtrail_bucket_name
+  # Object Lock must be enabled at bucket creation
+  object_lock_enabled = true
+
+  tags = merge(
+    var.default_resource_tags,
+    {
+      Name          = local.cloudtrail_bucket_name
+      projectID     = var.project_id
+      environment   = var.environment
+      managed-by    = "terraform"
+      resource-type = "audit-logs"
+      Purpose       = "CentralizedCloudTrailAuditLogs"
+    }
+  )
+}
+
+# Object Lock Configuration (Compliance Mode - Immutable)
+resource "aws_s3_bucket_object_lock_configuration" "cloudtrail" {
+  count  = var.enable_cloudtrail ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+
+  rule {
+    default_retention {
+      mode = "COMPLIANCE"  # Cannot be overridden by anyone, including root
+      days = var.cloudtrail_retention_days
+    }
   }
 }
 
+# Encryption at Rest
+resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail" {
+  count  = var.enable_cloudtrail ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+# Versioning (required for Object Lock)
+resource "aws_s3_bucket_versioning" "cloudtrail" {
+  count  = var.enable_cloudtrail ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# Block Public Access
 resource "aws_s3_bucket_public_access_block" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id
@@ -586,23 +753,27 @@ resource "aws_s3_bucket_public_access_block" "cloudtrail" {
   restrict_public_buckets = true
 }
 
+# Lifecycle configuration for non-current versions only
+# Cannot delete current versions due to Object Lock COMPLIANCE mode
 resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id
 
   rule {
-    id     = "expire-old-logs"
+    id     = "cleanup-noncurrent-versions"
     status = "Enabled"
 
-    expiration {
-      days = var.cloudtrail_retention_days
+    noncurrent_version_expiration {
+      noncurrent_days = 30
     }
   }
 }
 
+# CloudTrail Bucket Policy with Security Enforcement
 data "aws_iam_policy_document" "cloudtrail_bucket_policy" {
   count = var.enable_cloudtrail ? 1 : 0
 
+  # CloudTrail Service Permissions
   statement {
     sid    = "AWSCloudTrailAclCheck"
     effect = "Allow"
@@ -618,7 +789,7 @@ data "aws_iam_policy_document" "cloudtrail_bucket_policy" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
-      values   = ["arn:aws:cloudtrail:${local.region}:${local.account_id}:trail/github-actions-oidc-${var.environment}"]
+      values   = ["arn:aws:cloudtrail:${local.region}:${local.account_id}:trail/centralized-audit-trail-${var.environment}"]
     }
   }
 
@@ -643,7 +814,55 @@ data "aws_iam_policy_document" "cloudtrail_bucket_policy" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
-      values   = ["arn:aws:cloudtrail:${local.region}:${local.account_id}:trail/github-actions-oidc-${var.environment}"]
+      values   = ["arn:aws:cloudtrail:${local.region}:${local.account_id}:trail/centralized-audit-trail-${var.environment}"]
+    }
+  }
+
+  # Security: Deny non-HTTPS requests
+  statement {
+    sid    = "DenyInsecureTransport"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions = ["s3:*"]
+
+    resources = [
+      aws_s3_bucket.cloudtrail[0].arn,
+      "${aws_s3_bucket.cloudtrail[0].arn}/*"
+    ]
+
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+
+  # Security: Enforce TLS 1.2 or higher
+  statement {
+    sid    = "EnforceTLS12OrHigher"
+    effect = "Deny"
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    actions = ["s3:*"]
+
+    resources = [
+      aws_s3_bucket.cloudtrail[0].arn,
+      "${aws_s3_bucket.cloudtrail[0].arn}/*"
+    ]
+
+    condition {
+      test     = "NumericLessThan"
+      variable = "s3:TlsVersion"
+      values   = ["1.2"]
     }
   }
 }
@@ -652,34 +871,85 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id
   policy = data.aws_iam_policy_document.cloudtrail_bucket_policy[0].json
+
+  depends_on = [aws_s3_bucket_public_access_block.cloudtrail]
 }
 
-resource "aws_cloudtrail" "github_actions_oidc" {
+# Centralized CloudTrail for ALL Projects and Services
+resource "aws_cloudtrail" "centralized_audit" {
   count                         = var.enable_cloudtrail ? 1 : 0
-  name                          = "github-actions-oidc-${var.environment}"
+  name                          = "centralized-audit-trail-${var.environment}"
   s3_bucket_name                = aws_s3_bucket.cloudtrail[0].id
   include_global_service_events = true
   is_multi_region_trail         = true
+  is_organization_trail         = false  # Set to true if using AWS Organizations
   enable_logging                = true
+  enable_log_file_validation    = true   # Integrity validation
 
-  event_selector {
-    read_write_type           = "All"
-    include_management_events = true
-
-    data_resource {
-      type   = "AWS::S3::Object"
-      values = ["${aws_s3_bucket.terraform_state.arn}/*"]
-    }
-
-    data_resource {
-      type   = "AWS::DynamoDB::Table"
-      values = [aws_dynamodb_table.terraform_locks.arn]
+  # Advanced Event Selectors for comprehensive logging
+  advanced_event_selector {
+    name = "Log all management events"
+    field_selector {
+      field  = "eventCategory"
+      equals = ["Management"]
     }
   }
 
-  tags = {
-    Name = "github-actions-oidc-${var.environment}"
+  advanced_event_selector {
+    name = "Log all S3 data events"
+    field_selector {
+      field  = "eventCategory"
+      equals = ["Data"]
+    }
+    field_selector {
+      field  = "resources.type"
+      equals = ["AWS::S3::Object"]
+    }
   }
+
+  advanced_event_selector {
+    name = "Log all DynamoDB data events"
+    field_selector {
+      field  = "eventCategory"
+      equals = ["Data"]
+    }
+    field_selector {
+      field  = "resources.type"
+      equals = ["AWS::DynamoDB::Table"]
+    }
+  }
+
+  advanced_event_selector {
+    name = "Log all Lambda invocations"
+    field_selector {
+      field  = "eventCategory"
+      equals = ["Data"]
+    }
+    field_selector {
+      field  = "resources.type"
+      equals = ["AWS::Lambda::Function"]
+    }
+  }
+
+  insight_selector {
+    insight_type = "ApiCallRateInsight"
+  }
+
+  insight_selector {
+    insight_type = "ApiErrorRateInsight"
+  }
+
+  tags = merge(
+    var.default_resource_tags,
+    {
+      Name          = "centralized-audit-trail-${var.environment}"
+      projectID     = var.project_id
+      environment   = var.environment
+      managed-by    = "terraform"
+      resource-type = "audit-trail"
+      Purpose       = "CentralizedSecurityAuditLogging"
+    }
+  )
 
   depends_on = [aws_s3_bucket_policy.cloudtrail]
 }
