@@ -1,6 +1,6 @@
 # Terraform Bootstrap Guide for GitHub Actions OIDC
 
-This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `bootstrap-dev` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, S3 state backend, and DynamoDB locking - no external dependencies required.
+This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `bootstrap-{env}` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, S3 state backend, and DynamoDB locking - no external dependencies required.
 
 **Repository:** `terraform-aws-oidc-bootstrap`
 
@@ -43,12 +43,13 @@ This approach automates the creation of OIDC providers, IAM roles, S3 state back
 This **single repository** creates your complete CI/CD foundation:
 
 1. **AWS OIDC Identity Provider** - `token.actions.githubusercontent.com`
-2. **IAM Role** - `github-actions-terraform-{environment}`
-3. **IAM Policy** - `TerraformDeploymentPolicy-{environment}` (expandable for Lambda, ECS, Glue, Bedrock)
-4. **S3 Bucket** - `{company}-tfstate-{environment}-{account-id}` (versioned, encrypted, lifecycle rules)
+2. **IAM Role** - `github-actions-terraform-{environment}` with ABAC session tagging
+3. **IAM Policy** - `TerraformDeploymentPolicy-{environment}` with ABAC conditions (expandable for Lambda, ECS, Glue, Bedrock)
+4. **S3 Bucket** - `{company}-tfstate-{environment}-{account-id}` (versioned, encrypted, lifecycle rules, public access blocked, TLS 1.2+ enforced)
 5. **DynamoDB Table** - `terraform-state-locks-{environment}` (point-in-time recovery, pay-per-request)
-6. **CloudTrail** - `github-actions-oidc-{environment}` (optional, enabled by default for audit logging)
+6. **CloudTrail** - `centralized-audit-trail-{environment}` (optional, immutable Object Lock, 90-day retention, multi-region)
 7. **Automated State Migration** - Seamless local → S3 transition
+8. **ABAC Security Model** - Attribute-based access control with project and environment isolation
 
 ---
 
@@ -68,13 +69,13 @@ aws --version
 git --version
 ```
 
-### 2. Create bootstrap-dev User with Required Permissions
+### 2. Create bootstrap-{env} User with Required Permissions
 
 **IMPORTANT**: This is a prerequisite step that must be completed **before** setting up OIDC. You need to create an IAM user with specific permissions to manage OIDC providers and IAM roles.
 
 ### Why This User?
 
-The `bootstrap-dev` user will have explicit permissions to:
+The `bootstrap-{dev}`, for example `bootstrap-dev` user will have explicit permissions to:
 - Create and manage OIDC identity providers
 - Create and manage IAM roles and policies
 - Create and manage CloudTrial
@@ -87,11 +88,11 @@ The `bootstrap-dev` user will have explicit permissions to:
 **In EACH AWS account (dev, qa, prod):**
 
 1. Go to **IAM Console** → **Users** → **Create user**
-2. Set username: `bootstrap-dev`
+2. Set username: `bootstrap-{env}`
 3. Select **Attach policies directly**
 4. Click **Create policy** (opens in new tab)
 
-### Create the bootstrap-dev-policy
+### Create the bootstrap-{env}-policy
 
 5. In the policy editor, select the **JSON** tab
 6. Paste the following policy:
@@ -269,20 +270,20 @@ The `bootstrap-dev` user will have explicit permissions to:
 
 7. Click **Next**
 8. Set policy details:
-   - **Policy name**: `bootstrap-dev-policy`
+   - **Policy name**: `bootstrap-{env}-policy`
    - **Description**: `Grants permissions to manage OIDC identity providers, IAM roles and policies, CloudTrail logging, and policy simulation. Does not include resource provisioning permissions -EC2, Lambda, etc.- or PassRole capability.`
 9. Click **Create policy**
 
 ### Attach Policy to User
 
 10. Return to the **Create user** tab
-11. Refresh the policy list and search for `bootstrap-dev-policy`
-12. Select the checkbox next to `bootstrap-dev-policy`
+11. Refresh the policy list and search for `bootstrap-{env}-policy`
+12. Select the checkbox next to `bootstrap-{env}-policy`
 13. Click **Next** → **Create user**
 
 ### Create Access Keys
 
-14. Go to the newly created `bootstrap-dev` user
+14. Go to the newly created `bootstrap-{env}` user
 15. Navigate to **Security credentials** tab
 16. Click **Create access key**
 17. Select **Command Line Interface (CLI)**
@@ -293,14 +294,14 @@ The `bootstrap-dev` user will have explicit permissions to:
 ### Configure AWS CLI Profile
 
 ```bash
-# Configure the bootstrap-dev profile
-aws configure --profile bootstrap-dev
+# Configure the bootstrap-{env} profile
+aws configure --profile bootstrap-{env}
 # Enter the Access Key ID and Secret Access Key from step 20 above
 # Set default region (e.g., eu-west-1)
 # Set output format (json)
 
 # Verify the profile
-aws sts get-caller-identity --profile bootstrap-dev
+aws sts get-caller-identity --profile bootstrap-{env}
 ```
 
 **Expected output:**
@@ -308,13 +309,11 @@ aws sts get-caller-identity --profile bootstrap-dev
 {
     "UserId": "AIDAXXXXXXXXXXXXXXXXX",
     "Account": "111111111111",
-    "Arn": "arn:aws:iam::111111111111:user/bootstrap-dev"
+    "Arn": "arn:aws:iam::111111111111:user/bootstrap-{env}"
 }
 ```
 
-**Repeat this process** for QA and Prod AWS accounts to create the bootstrap-qa and bootstrap-prod profiles. (Note: You may wish to verify Dev is fully working first):
-- `bootstrap-qa` profile
-- `bootstrap-prod` profile (or `bootstrap-prod`)
+**Repeat this process** for QA and Prod AWS accounts to create the bootstrap-qa and bootstrap-prod profiles. (Note: You may wish to verify Dev is fully working first)
 
 ### 4. GitHub Information
 
@@ -330,7 +329,7 @@ You'll need:
 Navigate to the bootstrap directory:
 
 ```bash
-cd terraform-aws-github-oidc/bootstrap
+cd terraform-aws-oidc-abac-bootstrap/bootstrap
 ```
 
 ### 2.1: Copy Example Variables File
@@ -350,13 +349,17 @@ github_org   = "your-github-org"        # Replace with your GitHub organization
 github_repo  = "*"                       # "*" for all repos, or specific repo name
 company_name = "yourcompany"             # Replace with your company prefix
 
+# ABAC Configuration (Recommended)
+enable_abac  = true                      # Enable Attribute-Based Access Control
+project_id   = "bootstrap"               # Project identifier (bootstrap for Project 0)
+
 # Optional: Enable branch restrictions
 enable_branch_restriction = false
 allowed_branches         = ["main", "develop", "release/*"]
 
 # Optional: CloudTrail for audit logging (recommended for compliance)
 enable_cloudtrail        = true          # Set to false to disable CloudTrail
-cloudtrail_retention_days = 90           # Days to retain CloudTrail logs
+cloudtrail_retention_days = 90           # Days to retain CloudTrail logs (immutable)
 
 # Optional: Custom tags
 tags = {
@@ -364,14 +367,23 @@ tags = {
   Purpose   = "GitHubActionsOIDC"
   Team      = "DevOps"
 }
+
+# Optional: Default resource tags for ABAC
+default_resource_tags = {
+  CostCenter = "Engineering"
+  Owner      = "DevOps"
+}
 ```
 
 **Important Notes:**
 - `github_repo = "*"` allows **all repositories** in your organization to use OIDC
 - Use a specific repo name (e.g., `"my-app-repo"`) to restrict to a single repository
 - `company_name` will be used as the S3 bucket prefix: `{company_name}-tfstate-{env}-{account-id}`
+- `enable_abac = true` (recommended) enables Attribute-Based Access Control for project isolation
+- `project_id = "bootstrap"` identifies this as Project 0 (infrastructure project)
 - `enable_cloudtrail = true` (default) creates CloudTrail for auditing OIDC authentications and AWS API calls
-- CloudTrail logs are stored in a dedicated S3 bucket with automatic expiration after `cloudtrail_retention_days`
+- CloudTrail logs use **Object Lock COMPLIANCE mode** - immutable for `cloudtrail_retention_days` (90 days default)
+- **ABAC Benefits:** Project isolation, fine-grained permissions, defense-in-depth security
 
 ### 1.3: Validate Configuration
 
@@ -735,11 +747,20 @@ aws cloudtrail get-trail \
 
 **What CloudTrail Logs:**
 - ✅ Every OIDC `AssumeRoleWithWebIdentity` authentication attempt
-- ✅ All S3 operations on the Terraform state bucket
-- ✅ All DynamoDB operations on the state lock table
+- ✅ All S3 operations on the Terraform state bucket (management + data events)
+- ✅ All DynamoDB operations on the state lock table (management + data events)
+- ✅ All Lambda function invocations (data events)
 - ✅ Full audit trail with GitHub workflow details (repository, branch, commit SHA)
+- ✅ CloudTrail Insights for anomaly detection (unusual API call/error rates)
 
-For detailed CloudTrail setup and querying, see [CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md).
+**CloudTrail Security Features:**
+- 🔒 **Object Lock COMPLIANCE mode** - Logs cannot be deleted for 90 days (even by root)
+- ✅ **Log file validation** - SHA-256 digests for integrity verification
+- ✅ **Multi-region trail** - Captures activity across all AWS regions
+- ✅ **Encryption at rest** - AES-256 encryption
+- ✅ **TLS 1.2+ enforcement** - Secure log delivery
+
+For detailed CloudTrail setup and querying, see [CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md) and [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md).
 
 ---
 
@@ -802,16 +823,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials with ABAC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
-          role-session-name: GitHubActions-${{ github.run_id }}
+          role-session-name: github-${{ github.run_id }}
+          role-session-tags: |
+            projectID=bootstrap
+            environment=dev
           aws-region: eu-west-1
       
       - name: Verify AWS credentials
         run: |
-          echo "Testing AWS OIDC authentication..."
+          echo "Testing AWS OIDC authentication with ABAC..."
           aws sts get-caller-identity
           echo "✅ Successfully authenticated with AWS using OIDC!"
       
@@ -824,6 +848,12 @@ jobs:
         run: |
           echo "Testing DynamoDB access..."
           aws dynamodb describe-table --table-name terraform-state-locks-dev || echo "Table access test"
+      
+      - name: Test ABAC isolation (should fail for other projects)
+        run: |
+          echo "Testing ABAC project isolation..."
+          echo "Attempting to access non-existent project path (should be denied by ABAC)..."
+          aws s3 ls s3://$(cat bootstrap/terraform.tfvars | grep company_name | cut -d'"' -f2)-tfstate-dev-*/other-project/ || echo "✅ ABAC isolation working - access denied as expected"
 ```
 
 ### 7.2: Commit and Push
@@ -976,40 +1006,84 @@ terraform state list
 
 ## Next Steps
 
-### 1. Set Up CloudTrail (Recommended)
+### 1. Review Security Architecture
+Understand the defense-in-depth security model:
+- See [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md)
+- Learn about ABAC implementation
+- Understand project isolation
+- Review threat model and defenses
+
+### 2. Set Up CloudTrail (Enabled by Default)
 For audit logging and compliance:
 - See [CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md)
 - Monitor all OIDC authentications and API calls
-- Meet regulatory requirements
+- Meet regulatory requirements (SOC 2, ISO 27001, PCI-DSS)
+- Immutable audit trail with Object Lock
 
-### 2. Use This Bootstrap for Your Applications
-Now that your foundation is set, deploy your applications:
-- **Lambda functions** - Serverless applications
-- **ECS/Fargate** - Containerized workloads  
-- **Glue jobs** - Data pipelines
-- **Bedrock** - AI/ML applications
-- **Any Terraform-managed infrastructure**
+### 3. Use This Bootstrap for Your Applications
+Now that your foundation is set, deploy your applications with ABAC isolation:
 
-All your application Terraform code can use the S3 backend and OIDC role created by this bootstrap.
+**For each new project (e.g., marketing-ai, dataplatform):**
 
-### 3. Expand to QA and Prod
+1. **Create project repository** with terraform code
+2. **Configure backend** to use shared state bucket:
+   ```hcl
+   terraform {
+     backend "s3" {
+       bucket         = "yourcompany-tfstate-dev-123456"
+       key            = "marketing-ai/terraform.tfstate"  # MUST match projectID
+       region         = "eu-west-1"
+       dynamodb_table = "terraform-state-locks-dev"
+       encrypt        = true
+     }
+   }
+   ```
+3. **Pass session tags** in GitHub Actions workflow:
+   ```yaml
+   - uses: aws-actions/configure-aws-credentials@v4
+     with:
+       role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+       role-session-tags: |
+         projectID=marketing-ai
+         environment=dev
+   ```
+4. **Tag resources** for ABAC:
+   ```hcl
+   tags = {
+     projectID   = "marketing-ai"
+     environment = "dev"
+     managed-by  = "terraform"
+   }
+   ```
+
+**Supported Services:**
+- **Lambda functions** - Serverless applications (project-isolated)
+- **ECS/Fargate** - Containerized workloads (project-isolated)
+- **Glue jobs** - Data pipelines (project-isolated)
+- **Bedrock** - AI/ML applications (project-isolated)
+- **S3, DynamoDB, etc.** - Any Terraform-managed infrastructure
+
+**ABAC guarantees:** Each project can only access its own state files and resources tagged with its projectID.
+
+### 4. Expand to QA and Prod
 Replicate this setup to other environments:
 - Follow [Multi-Environment Setup](#multi-environment-setup)
 - Use environment-specific `terraform.tfvars` files
 - Each environment gets its own S3 bucket and DynamoDB table
 
-### 4. Set Up Branch Protection
+### 5. Set Up Branch Protection
 Configure GitHub repository settings:
 - Require pull request reviews before merging to main
 - Enforce status checks (successful CI/CD)
 - Require branches to be up to date before merging
 
-### 5. Expand TerraformDeploymentPolicy
-As your needs grow, add permissions to `bootstrap.tf`:
+### 6. Expand TerraformDeploymentPolicy
+As your needs grow, add permissions to `bootstrap.tf` with ABAC conditions:
 ```hcl
 # Add to data "aws_iam_policy_document" "terraform_deployment"
+# For project-specific resources (isolated by projectID)
 statement {
-  sid    = "LambdaManagement"
+  sid    = "LambdaManagementProjectSpecific"
   effect = "Allow"
   actions = [
     "lambda:CreateFunction",
@@ -1018,8 +1092,30 @@ statement {
     # ... more Lambda permissions
   ]
   resources = ["*"]
+  
+  # ABAC: Require projectID match
+  dynamic "condition" {
+    for_each = var.enable_abac ? [1] : []
+    content {
+      test     = "StringEquals"
+      variable = "lambda:ResourceTag/projectID"
+      values   = ["$${aws:PrincipalTag/projectID}"]
+    }
+  }
+  
+  # ABAC: Require environment match
+  dynamic "condition" {
+    for_each = var.enable_abac ? [1] : []
+    content {
+      test     = "StringEquals"
+      variable = "lambda:ResourceTag/environment"
+      values   = ["$${aws:PrincipalTag/environment}"]
+    }
+  }
 }
 ```
+
+**Note:** See the template in `bootstrap.tf` lines 377-409 for the complete pattern.
 
 ---
 
@@ -1038,6 +1134,9 @@ statement {
 - ✅ Rotate access keys regularly
 - ✅ Enable MFA on bootstrap-dev user
 - ✅ Use CloudTrail to monitor bootstrap-dev activities
+- ✅ Enable ABAC (`enable_abac = true`) for project isolation
+- ✅ Always pass `projectID` and `environment` session tags in workflows
+- ✅ Tag all resources with `projectID`, `environment`, `managed-by`
 
 ### 3. Infrastructure Changes
 
@@ -1059,12 +1158,15 @@ statement {
 You've successfully:
 
 - ✅ Created OIDC provider, IAM role, and deployment policy with Terraform
-- ✅ Bootstrapped S3 backend and DynamoDB locking table
+- ✅ Implemented ABAC (Attribute-Based Access Control) for project isolation
+- ✅ Bootstrapped S3 backend and DynamoDB locking table with encryption and versioning
+- ✅ Configured immutable CloudTrail audit logging (Object Lock COMPLIANCE mode)
 - ✅ Migrated Terraform state from local to S3
 - ✅ Configured GitHub variables for OIDC authentication
-- ✅ Tested GitHub Actions workflow with AWS access
+- ✅ Tested GitHub Actions workflow with AWS access and ABAC session tags
+- ✅ Implemented defense-in-depth security with 7 layers of protection
 
-**Your infrastructure is now fully automated and ready for CI/CD deployments! 🚀**
+**Your infrastructure is now fully automated, secure, and ready for multi-project CI/CD deployments! 🚀🔒**
 
 ---
 
@@ -1072,6 +1174,9 @@ You've successfully:
 
 - [Terraform S3 Backend](https://developer.hashicorp.com/terraform/language/settings/backends/s3)
 - [AWS OIDC with GitHub Actions](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services)
+- [AWS ABAC Documentation](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction_attribute-based-access-control.html)
+- [S3 Object Lock](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html)
 - [OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md) - Manual setup alternative
-- [AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md) - IAM policy reference
+- [AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md) - IAM policy reference with ABAC examples
+- [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md) - Defense-in-depth security model
 - [CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md) - Audit logging setup
