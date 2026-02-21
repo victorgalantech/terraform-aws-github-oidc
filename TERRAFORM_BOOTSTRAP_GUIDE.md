@@ -75,7 +75,7 @@ git --version
 
 ### Why This User?
 
-The `bootstrap-{dev}`, for example `bootstrap-dev` user will have explicit permissions to:
+The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permissions to:
 - Create and manage OIDC identity providers
 - Create and manage IAM roles and policies
 - Create and manage CloudTrial

@@ -113,6 +113,62 @@ Setting up GitHub Actions with AWS traditionally requires:
 
 > **⚠️ Important**: Complete setup and testing in **dev** environment before replicating to QA and Prod.
 
+---
+
+## 🤖 GitHub Actions CI/CD
+
+**Automated deployment workflows included!**
+
+### Workflows Available
+
+1. **🚀 Terraform Deploy** - Automated deployment pipeline
+   - Auto-deploys on push to `main` (prod) or `develop` (dev)
+   - PR validation with plan preview
+   - ABAC session tags automatically passed
+   - Security scanning (Checkov, tfsec)
+   - Compliance checks
+   - Manual deployment option
+
+2. **🔍 PR Quality Checks** - Pull request validation
+   - Terraform formatting and validation
+   - Security scanning
+   - Cost estimation
+   - Documentation generation
+   - Sensitive data detection
+
+3. **📊 Drift Detection** - Infrastructure monitoring
+   - Daily automated drift detection
+   - Auto-creates GitHub issues
+   - Manual on-demand checks
+   - Drift reports as artifacts
+
+### Quick Start
+
+**1. Initial Bootstrap (Manual - First Time Only):**
+```bash
+cd bootstrap/
+terraform init
+terraform apply -var="environment=dev"
+```
+
+**2. Configure GitHub Variables:**
+
+Go to **Settings → Secrets and variables → Actions → Variables** and add:
+- `AWS_ROLE_ARN_DEV` = Output from step 1
+- `AWS_ROLE_ARN_QA` = (repeat for QA account)
+- `AWS_ROLE_ARN_PROD` = (repeat for Prod account)
+
+**3. Deploy via GitHub Actions:**
+```bash
+git add .
+git commit -m "feat: enable ABAC infrastructure"
+git push origin develop  # Auto-deploys to dev
+```
+
+**👉 Full deployment guide:** [.github/DEPLOYMENT_GUIDE.md](.github/DEPLOYMENT_GUIDE.md)
+
+---
+
 ## 📚 Documentation
 
 ### Complete Guides
@@ -194,10 +250,7 @@ terraform-aws-oidc-bootstrap Repository
         │    └─── outputs.tf (Role ARNs, backend config)
         │
         └─── Documentation
-             ├─── TERRAFORM_BOOTSTRAP_GUIDE.md (Primary guide)
-             ├─── OIDC_SETUP_GUIDE.md (Manual alternative)
-             ├─── AWS_IAM_POLICIES.md (Policy reference)
-             └─── CLOUDTRAIL_SETUP.md (Audit logging)
+             ├─── TERRAFORM_BOOTSTRAP_GUIDE.md
 
 Bootstrap Creates (per environment):
 ┌─────────────────────────────────────────────────┐
@@ -309,8 +362,6 @@ role-session-tags: |
 | **Lock record manipulation** | DynamoDB LeadingKeys | ❌ Denied |
 | **Audit log deletion** | Object Lock COMPLIANCE | ❌ Denied |
 | **State file deletion** | S3 versioning | ✅ Recoverable |
-
-See [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md) for complete threat model and testing procedures.
 
 ---
 
