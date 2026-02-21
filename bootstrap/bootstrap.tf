@@ -485,7 +485,7 @@ data "aws_iam_policy_document" "terraform_deployment" {
   }
 
   # ================================================================
-  # FUTURE: Add project-specific resources below with projectID ABAC
+  # FUTURE: Add project-specific resources with projectID ABAC
   # ================================================================
   # When adding Lambda, ECS, Glue, Bedrock, or other resources that should
   # be isolated per project, use this pattern:
@@ -645,6 +645,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
     id     = "expire-old-versions"
     status = "Enabled"
 
+    filter {}
+
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
@@ -675,7 +677,6 @@ resource "aws_dynamodb_table" "terraform_locks" {
       Name          = "terraform-state-locks-${var.environment}"
       projectID     = var.project_id
       environment   = var.environment
-      managed-by    = "terraform"
       resource-type = "state-backend"  # Shared across ALL projects
     }
   )
@@ -762,6 +763,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
   rule {
     id     = "cleanup-noncurrent-versions"
     status = "Enabled"
+
+    filter {}
 
     noncurrent_version_expiration {
       noncurrent_days = 30

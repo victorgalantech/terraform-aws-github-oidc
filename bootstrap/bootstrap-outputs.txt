@@ -1,0 +1,64 @@
+aws_account_id = "002332700133"
+aws_region = "eu-west-1"
+backend_config = {
+  "bucket" = "victorgalantech-tfstate-dev-002332700133"
+  "dynamodb_table" = "terraform-state-locks-dev"
+  "encrypt" = true
+  "key" = "bootstrap/terraform.tfstate"
+  "region" = "eu-west-1"
+}
+cloudtrail_arn = "arn:aws:cloudtrail:eu-west-1:002332700133:trail/centralized-audit-trail-dev"
+cloudtrail_bucket = "cloudtrail-logs-victorgalantech-dev-002332700133"
+cloudtrail_name = "centralized-audit-trail-dev"
+dynamodb_lock_table = "terraform-state-locks-dev"
+dynamodb_lock_table_arn = "arn:aws:dynamodb:eu-west-1:002332700133:table/terraform-state-locks-dev"
+environment = "dev"
+github_actions_role_arn = "arn:aws:iam::002332700133:role/github-actions-terraform-dev"
+github_actions_role_name = "github-actions-terraform-dev"
+github_variable_setup = {
+  "AWS_ROLE_ARN_DEV" = "arn:aws:iam::002332700133:role/github-actions-terraform-dev"
+  "AWS_ROLE_ARN_PROD" = tostring(null)
+  "AWS_ROLE_ARN_QA" = tostring(null)
+}
+next_steps = <<EOT
+  
+========================================
+Bootstrap Complete! 🎉
+========================================
+  
+Resources Created:
+- OIDC Provider: arn:aws:iam::002332700133:oidc-provider/token.actions.githubusercontent.com
+- IAM Role: github-actions-terraform-dev
+- S3 State Bucket: victorgalantech-tfstate-dev-002332700133
+- DynamoDB Lock Table: terraform-state-locks-dev
+- CloudTrail: centralized-audit-trail-dev (enabled for audit logging)
+  
+Next Steps:
+  
+1. Migrate state to S3 backend:
+     
+   terraform init -migrate-state -backend-config="backend-config.hcl"
+  
+2. Set GitHub Variables (Settings → Secrets and variables → Actions → Variables):
+     
+   Name: AWS_ROLE_ARN_DEV
+   Value: arn:aws:iam::002332700133:role/github-actions-terraform-dev
+  
+3. Verify the setup:
+     
+   aws sts get-caller-identity --profile bootstrap-dev
+   aws s3 ls s3://victorgalantech-tfstate-dev-002332700133
+   aws dynamodb describe-table --table-name terraform-state-locks-dev
+   aws cloudtrail get-trail-status --name centralized-audit-trail-dev
+  
+4. Test GitHub Actions workflow with OIDC authentication
+
+  5. Query CloudTrail logs to monitor OIDC authentications:
+     aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity
+  
+========================================
+
+EOT
+oidc_provider_arn = "arn:aws:iam::002332700133:oidc-provider/token.actions.githubusercontent.com"
+terraform_state_bucket = "victorgalantech-tfstate-dev-002332700133"
+terraform_state_bucket_arn = "arn:aws:s3:::victorgalantech-tfstate-dev-002332700133"

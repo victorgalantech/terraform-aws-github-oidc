@@ -50,7 +50,7 @@ output "environment" {
 
 output "cloudtrail_name" {
   description = "CloudTrail name (if enabled)"
-  value       = var.enable_cloudtrail ? aws_cloudtrail.github_actions_oidc[0].name : null
+  value       = var.enable_cloudtrail ? aws_cloudtrail.centralized_audit[0].name : null
 }
 
 output "cloudtrail_bucket" {
@@ -60,7 +60,7 @@ output "cloudtrail_bucket" {
 
 output "cloudtrail_arn" {
   description = "CloudTrail ARN (if enabled)"
-  value       = var.enable_cloudtrail ? aws_cloudtrail.github_actions_oidc[0].arn : null
+  value       = var.enable_cloudtrail ? aws_cloudtrail.centralized_audit[0].arn : null
 }
 
 output "backend_config" {
@@ -96,7 +96,7 @@ output "next_steps" {
   - IAM Role: ${aws_iam_role.github_actions.name}
   - S3 State Bucket: ${aws_s3_bucket.terraform_state.id}
   - DynamoDB Lock Table: ${aws_dynamodb_table.terraform_locks.id}
-  ${var.enable_cloudtrail ? "- CloudTrail: ${aws_cloudtrail.github_actions_oidc[0].name} (enabled for audit logging)" : "- CloudTrail: disabled"}
+  ${var.enable_cloudtrail ? "- CloudTrail: ${aws_cloudtrail.centralized_audit[0].name} (enabled for audit logging)" : "- CloudTrail: disabled"}
   
   Next Steps:
   
@@ -114,7 +114,7 @@ output "next_steps" {
      aws sts get-caller-identity --profile bootstrap-dev
      aws s3 ls s3://${aws_s3_bucket.terraform_state.id}
      aws dynamodb describe-table --table-name ${aws_dynamodb_table.terraform_locks.id}
-     ${var.enable_cloudtrail ? "aws cloudtrail get-trail-status --name ${aws_cloudtrail.github_actions_oidc[0].name}" : ""}
+     ${var.enable_cloudtrail ? "aws cloudtrail get-trail-status --name ${aws_cloudtrail.centralized_audit[0].name}" : ""}
   
   4. Test GitHub Actions workflow with OIDC authentication
   ${var.enable_cloudtrail ? "\n  5. Query CloudTrail logs to monitor OIDC authentications:\n     aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity" : ""}
