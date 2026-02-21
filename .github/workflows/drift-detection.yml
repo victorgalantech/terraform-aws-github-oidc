@@ -22,6 +22,8 @@ env:
   TF_VERSION: '1.6.0'
   AWS_REGION: 'eu-west-1'
   WORKING_DIR: './bootstrap'
+  # Map lowercase environment to uppercase for GitHub variable lookup
+  ENV_MAP: '{"dev": "DEV", "qa": "QA", "prod": "PROD"}'
 
 jobs:
   # ================================================
@@ -49,9 +51,14 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', matrix.environment)] }}
+          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[matrix.environment])] }}
           role-session-name: DriftDetection-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
+          role-session-tags: |
+            projectID=bootstrap
+            environment=${{ matrix.environment }}
+            action=drift-detection
+            managed-by=github-actions
 
       - name: Terraform Init
         run: |
