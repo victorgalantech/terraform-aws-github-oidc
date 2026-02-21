@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+      - feature/*
     paths:
       - 'bootstrap/**'
       - '.github/workflows/terraform-deploy.yml'
