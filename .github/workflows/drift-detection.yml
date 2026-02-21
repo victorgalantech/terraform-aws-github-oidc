@@ -52,11 +52,6 @@ jobs:
           role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', matrix.environment)] }}
           role-session-name: DriftDetection-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-tags: |
-            projectID=bootstrap
-            environment=${{ matrix.environment }}
-            action=drift-detection
-            managed-by=github-actions
 
       - name: Terraform Init
         run: |

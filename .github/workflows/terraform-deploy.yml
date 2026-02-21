@@ -221,21 +221,12 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Configure AWS credentials (OIDC with ABAC)
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', needs.detect-environment.outputs.environment)] }}
           role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
           aws-region: ${{ env.AWS_REGION }}
-          # ABAC Session Tags (passed to IAM role)
-          role-session-tags: |
-            projectID=bootstrap
-            environment=${{ needs.detect-environment.outputs.environment }}
-            github-org=${{ github.repository_owner }}
-            github-repo=${{ github.repository }}
-            github-actor=${{ github.actor }}
-            github-sha=${{ github.sha }}
-            managed-by=github-actions
 
       - name: Verify AWS Identity
         run: |
@@ -351,20 +342,12 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Configure AWS credentials (OIDC with ABAC)
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', needs.detect-environment.outputs.environment)] }}
-          role-session-name: GitHubActions-Apply-${{ github.run_id }}
+          role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-tags: |
-            projectID=bootstrap
-            environment=${{ needs.detect-environment.outputs.environment }}
-            github-org=${{ github.repository_owner }}
-            github-repo=${{ github.repository }}
-            github-actor=${{ github.actor }}
-            managed-by=github-actions
-            action=terraform-apply
 
       - name: Download plan artifact
         uses: actions/download-artifact@v4
