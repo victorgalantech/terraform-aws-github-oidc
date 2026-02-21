@@ -363,10 +363,6 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
             projectID=bootstrap
-            environment=${{ needs.detect-environment.outputs.environment }}
-            github-org=${{ github.repository_owner }}
-            github-repo=${{ github.repository }}
-            github-actor=${{ github.actor }}
             managed-by=github_actions
             action=terraform_apply
 
