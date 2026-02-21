@@ -231,9 +231,9 @@ jobs:
           role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
           aws-region: ${{ env.AWS_REGION }}
           # ABAC Session Tags (passed to IAM role)
-          role-session-tags: |
-            projectID=bootstrap
-            managed-by=github-actions
+        #   role-session-tags: |
+        #     projectID=bootstrap
+        #     managed-by=github-actions
 
       - name: Verify AWS Identity
         run: |
