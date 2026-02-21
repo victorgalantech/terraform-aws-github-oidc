@@ -226,7 +226,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[needs.detect-environment.outputs.environment])] }}
+          #role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[needs.detect-environment.outputs.environment])] }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
           role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
           aws-region: ${{ env.AWS_REGION }}
           # ABAC Session Tags (passed to IAM role)
