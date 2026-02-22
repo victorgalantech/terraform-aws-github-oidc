@@ -222,6 +222,21 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Debug - Check Variable Access
+        run: |
+          echo "🔍 Checking organization variable access..."
+          echo "Repository: ${{ github.repository }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+          if [ -z "${{ vars.AWS_ROLE_ARN_DEV }}" ]; then
+            echo "❌ ERROR: AWS_ROLE_ARN_DEV is EMPTY or not accessible!"
+            echo "Variable is not reaching the workflow from organization settings."
+            exit 1
+          else
+            echo "✅ Variable is accessible"
+            echo "Role ARN: ${{ vars.AWS_ROLE_ARN_DEV }}"
+          fi      
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
