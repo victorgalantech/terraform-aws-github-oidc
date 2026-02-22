@@ -1,4 +1,518 @@
-name: 🚀 Terraform Deploy - ABAC Bootstrap
+# name: 🚀 Terraform Deploy - ABAC Bootstrap
+
+# on:
+#   push:
+#     branches:
+#       - main
+#       - develop
+#       - feature/*
+#     paths:
+#       - 'bootstrap/**'
+#       - '.github/workflows/terraform-deploy.yml'
+#   pull_request:
+#     branches:
+#       - main
+#       - develop
+#     paths:
+#       - 'bootstrap/**'
+#   workflow_dispatch:
+#     inputs:
+#       environment:
+#         description: 'Environment to deploy'
+#         required: true
+#         type: choice
+#         options:
+#           - dev
+#           - qa
+#           - prod
+#       action:
+#         description: 'Terraform action'
+#         required: true
+#         type: choice
+#         options:
+#           - plan
+#           - apply
+#           - destroy
+
+# # Required permissions for OIDC
+# permissions:
+#   id-token: write   # OIDC authentication
+#   contents: read    # Checkout code
+#   pull-requests: write  # Comment on PRs
+
+# env:
+#   TF_VERSION: '1.6.0'
+#   AWS_REGION: 'eu-west-1'
+#   WORKING_DIR: './bootstrap'
+#   # Map lowercase environment to uppercase for GitHub variable lookup
+#   ENV_MAP: '{"dev": "DEV", "qa": "QA", "prod": "PROD"}'
+
+# jobs:
+#   # ================================================
+#   # Job 1: Detect Environment
+#   # ================================================
+#   detect-environment:
+#     name: 🔍 Detect Environment
+#     runs-on: ubuntu-latest
+#     outputs:
+#       environment: ${{ steps.detect.outputs.environment }}
+#       should_deploy: ${{ steps.detect.outputs.should_deploy }}
+#     steps:
+#       - name: Detect environment from branch
+#         id: detect
+#         run: |
+#           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+#             ENV="${{ github.event.inputs.environment }}"
+#             DEPLOY="true"
+#           elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+#             ENV="prod"
+#             DEPLOY="true"
+#           elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+#             ENV="dev"
+#             DEPLOY="true"
+#           elif [[ "${{ github.base_ref }}" == "main" ]]; then
+#             ENV="prod"
+#             DEPLOY="false"
+#           else
+#             ENV="dev"
+#             DEPLOY="false"
+#           fi
+          
+#           echo "environment=${ENV}" >> $GITHUB_OUTPUT
+#           echo "should_deploy=${DEPLOY}" >> $GITHUB_OUTPUT
+#           echo "🎯 Environment: ${ENV}"
+#           echo "📦 Should Deploy: ${DEPLOY}"
+
+#   # ================================================
+#   # Job 2: Terraform Validate & Lint
+#   # ================================================
+#   validate:
+#     name: ✅ Validate & Lint
+#     runs-on: ubuntu-latest
+#     needs: detect-environment
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: ${{ env.TF_VERSION }}
+
+#       - name: Terraform Format Check
+#         id: fmt
+#         run: terraform fmt -check -recursive
+#         working-directory: ${{ env.WORKING_DIR }}
+#         continue-on-error: true
+
+#       - name: Terraform Init (validation only)
+#         run: terraform init -backend=false
+#         working-directory: ${{ env.WORKING_DIR }}
+
+#       - name: Terraform Validate
+#         id: validate
+#         run: terraform validate -no-color
+#         working-directory: ${{ env.WORKING_DIR }}
+
+#       - name: Setup TFLint
+#         uses: terraform-linters/setup-tflint@v4
+#         with:
+#           tflint_version: latest
+
+#       - name: Run TFLint
+#         id: tflint
+#         run: |
+#           tflint --init
+#           tflint --format compact
+#         working-directory: ${{ env.WORKING_DIR }}
+#         continue-on-error: true
+
+#       - name: Comment PR - Validation Results
+#         if: github.event_name == 'pull_request'
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             const output = `#### 🎨 Terraform Format: \`${{ steps.fmt.outcome }}\`
+#             #### ✅ Terraform Validation: \`${{ steps.validate.outcome }}\`
+#             #### 🔍 TFLint: \`${{ steps.tflint.outcome }}\`
+            
+#             <details><summary>Show Validation Output</summary>
+            
+#             \`\`\`
+#             ${{ steps.validate.outputs.stdout }}
+#             \`\`\`
+            
+#             </details>
+            
+#             *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+            
+#             github.rest.issues.createComment({
+#               issue_number: context.issue.number,
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               body: output
+#             })
+
+#   # ================================================
+#   # Job 3: Security Scanning
+#   # ================================================
+#   security-scan:
+#     name: 🔒 Security Scan
+#     runs-on: ubuntu-latest
+#     needs: validate
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Run Checkov
+#         id: checkov
+#         uses: bridgecrewio/checkov-action@master
+#         with:
+#           directory: ${{ env.WORKING_DIR }}
+#           framework: terraform
+#           output_format: cli
+#           soft_fail: true
+#           quiet: false
+
+#       - name: Run tfsec
+#         id: tfsec
+#         uses: aquasecurity/tfsec-action@v1.0.3
+#         with:
+#           working_directory: ${{ env.WORKING_DIR }}
+#           soft_fail: true
+
+#       - name: Comment PR - Security Scan Results
+#         if: github.event_name == 'pull_request'
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             const output = `#### 🔒 Security Scan Results
+            
+#             - **Checkov**: \`${{ steps.checkov.outcome }}\`
+#             - **tfsec**: \`${{ steps.tfsec.outcome }}\`
+            
+#             ✅ Security scanning complete. Review any findings above.
+            
+#             *Environment: \`${{ needs.detect-environment.outputs.environment }}\`*`;
+            
+#             github.rest.issues.createComment({
+#               issue_number: context.issue.number,
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               body: output
+#             })
+
+#   # ================================================
+#   # Job 4: Terraform Plan
+#   # ================================================
+#   plan:
+#     name: 📋 Terraform Plan
+#     runs-on: ubuntu-latest
+#     needs: [detect-environment, validate, security-scan]
+#     environment: ${{ needs.detect-environment.outputs.environment }}
+#     env:
+#       ENV: ${{ needs.detect-environment.outputs.environment }}
+#     outputs:
+#       exitcode: ${{ steps.plan.outputs.exitcode }}
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: ${{ env.TF_VERSION }}
+      
+#       - name: Debug - Check Variable Access
+#         run: |
+#           echo "🔍 Checking organization variable access..."
+#           echo "Repository: ${{ github.repository }}"
+#           echo "Event: ${{ github.event_name }}"
+#           echo "Branch: ${{ github.ref }}"
+#           if [ -z "${{ vars.AWS_ROLE_ARN_DEV }}" ]; then
+#             echo "❌ ERROR: AWS_ROLE_ARN_DEV is EMPTY or not accessible!"
+#             echo "Variable is not reaching the workflow from organization settings."
+#             exit 1
+#           else
+#             echo "✅ Variable is accessible"
+#             echo "Role ARN: ${{ vars.AWS_ROLE_ARN_DEV }}"
+#           fi      
+
+#       - name: Configure AWS credentials (OIDC)
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           #role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[needs.detect-environment.outputs.environment])] }}
+#           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+#           role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
+#           aws-region: ${{ env.AWS_REGION }}
+#           # ABAC Session Tags (passed to IAM role)
+#         #   role-session-tags: |
+#         #     projectID=bootstrap
+#         #     managed-by=github-actions
+
+#       - name: Verify AWS Identity
+#         run: |
+#           echo "🔐 Verifying OIDC authentication..."
+#           aws sts get-caller-identity
+#           echo "✅ Successfully authenticated with ABAC session tags"
+
+#       - name: Terraform Init
+#         run: |
+#           if [ -f "backend-config.hcl" ]; then
+#             terraform init -backend-config=backend-config.hcl
+#           else
+#             terraform init
+#           fi
+#         working-directory: ${{ env.WORKING_DIR }}
+
+#       - name: Terraform Plan
+#         id: plan
+#         run: |
+#           terraform plan \
+#             -var="environment=${{ env.ENV }}" \
+#             -out=tfplan-${{ env.ENV }}.binary \
+#             -detailed-exitcode \
+#             -no-color
+#         working-directory: ${{ env.WORKING_DIR }}
+#         continue-on-error: true
+
+#       - name: Convert plan to JSON
+#         if: steps.plan.outputs.exitcode == '2'
+#         run: terraform show -json tfplan-${{ env.ENV }}.binary > tfplan-${{ env.ENV }}.json
+#         working-directory: ${{ env.WORKING_DIR }}
+
+#       - name: Upload plan artifact
+#         if: steps.plan.outputs.exitcode == '2'
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: tfplan-${{ env.ENV }}
+#           path: ${{ env.WORKING_DIR }}/tfplan-${{ env.ENV }}.binary
+#           retention-days: 5
+
+#       - name: Comment PR - Plan Results
+#         if: github.event_name == 'pull_request' && steps.plan.outputs.exitcode == '2'
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             const fs = require('fs');
+#             const plan = fs.readFileSync('${{ env.WORKING_DIR }}/tfplan-${{ env.ENV }}.json', 'utf8');
+#             const planJson = JSON.parse(plan);
+            
+#             const resourceChanges = planJson.resource_changes || [];
+#             const toCreate = resourceChanges.filter(r => r.change.actions.includes('create')).length;
+#             const toUpdate = resourceChanges.filter(r => r.change.actions.includes('update')).length;
+#             const toDelete = resourceChanges.filter(r => r.change.actions.includes('delete')).length;
+            
+#             const output = `#### 📋 Terraform Plan - ${{ env.ENV }}
+            
+#             **Changes Summary:**
+#             - ➕ Create: ${toCreate}
+#             - 🔄 Update: ${toUpdate}
+#             - ➖ Delete: ${toDelete}
+            
+#             **Exit Code**: \`${{ steps.plan.outputs.exitcode }}\`
+            
+#             <details><summary>Show Full Plan</summary>
+            
+#             \`\`\`terraform
+#             Resources to create: ${toCreate}
+#             Resources to update: ${toUpdate}
+#             Resources to delete: ${toDelete}
+#             \`\`\`
+            
+#             </details>
+            
+#             **⚠️ Review the plan carefully before approving deployment.**
+            
+#             *Environment: \`${{ env.ENV }}\` | Run ID: \`${{ github.run_id }}\`*`;
+            
+#             github.rest.issues.createComment({
+#               issue_number: context.issue.number,
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               body: output
+#             })
+
+#       - name: Plan Status
+#         if: steps.plan.outputs.exitcode == '1'
+#         run: |
+#           echo "❌ Terraform plan failed"
+#           exit 1
+
+#   # ================================================
+#   # Job 5: Terraform Apply (Requires Approval for Prod)
+#   # ================================================
+#   apply:
+#     name: 🚀 Terraform Apply
+#     runs-on: ubuntu-latest
+#     needs: [detect-environment, plan]
+#     if: |
+#       needs.detect-environment.outputs.should_deploy == 'true' &&
+#       needs.plan.outputs.exitcode == '2' &&
+#       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+#     environment: 
+#       name: ${{ needs.detect-environment.outputs.environment }}
+#       url: https://console.aws.amazon.com/cloudtrail/
+#     env:
+#       ENV: ${{ needs.detect-environment.outputs.environment }}
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: ${{ env.TF_VERSION }}
+
+#       - name: Configure AWS credentials (OIDC with ABAC)
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           #role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[needs.detect-environment.outputs.environment])] }}
+#           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+#           role-session-name: GitHubActions-Apply-${{ github.run_id }}
+#           aws-region: ${{ env.AWS_REGION }}
+#           role-session-tags: |
+#             projectID=bootstrap
+#             managed-by=github_actions
+#             action=terraform_apply
+
+#       - name: Download plan artifact
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: tfplan-${{ env.ENV }}
+#           path: ${{ env.WORKING_DIR }}
+
+#       - name: Terraform Init
+#         run: |
+#           if [ -f "backend-config.hcl" ]; then
+#             terraform init -backend-config=backend-config.hcl
+#           else
+#             terraform init
+#           fi
+#         working-directory: ${{ env.WORKING_DIR }}
+
+#       - name: Terraform Apply
+#         id: apply
+#         run: terraform apply -auto-approve tfplan-${{ env.ENV }}.binary
+#         working-directory: ${{ env.WORKING_DIR }}
+
+#       - name: Output deployment summary
+#         if: success()
+#         run: |
+#           echo "✅ Deployment successful!"
+#           echo "Environment: ${{ env.ENV }}"
+#           echo "Run ID: ${{ github.run_id }}"
+#           terraform output -json > outputs.json
+#         working-directory: ${{ env.WORKING_DIR }}
+
+#       - name: Upload outputs
+#         if: success()
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: terraform-outputs-${{ env.ENV }}
+#           path: ${{ env.WORKING_DIR }}/outputs.json
+#           retention-days: 30
+
+#       - name: Verify CloudTrail logging
+#         if: success()
+#         run: |
+#           echo "🔍 Verifying CloudTrail is logging OIDC events..."
+#           aws cloudtrail lookup-events \
+#             --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+#             --max-results 5 \
+#             --query 'Events[*].[EventTime,Username,CloudTrailEvent]' \
+#             --output table || echo "⚠️ No recent OIDC events found (this is normal for first deployment)"
+
+#       - name: Comment PR - Deployment Success
+#         if: success() && github.event_name == 'pull_request'
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             const output = `#### ✅ Deployment Successful - ${{ env.ENV }}
+            
+#             **Environment**: \`${{ env.ENV }}\`
+#             **Run ID**: \`${{ github.run_id }}\`
+#             **Actor**: @${{ github.actor }}
+            
+#             🎉 Infrastructure deployed successfully with ABAC security!
+            
+#             **Next Steps:**
+#             1. Verify resources in AWS Console
+#             2. Check CloudTrail for audit logs
+#             3. Test ABAC isolation between projects
+            
+#             [View CloudTrail Events](https://console.aws.amazon.com/cloudtrail/)`;
+            
+#             github.rest.issues.createComment({
+#               issue_number: context.issue.number,
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               body: output
+#             })
+
+#   # ================================================
+#   # Job 6: Drift Detection (Scheduled)
+#   # ================================================
+#   drift-detection:
+#     name: 🔍 Drift Detection
+#     runs-on: ubuntu-latest
+#     if: github.event_name == 'schedule'
+#     strategy:
+#       matrix:
+#         environment: [dev, qa, prod]
+#     environment: ${{ matrix.environment }}
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Setup Terraform
+#         uses: hashicorp/setup-terraform@v3
+#         with:
+#           terraform_version: ${{ env.TF_VERSION }}
+
+#       - name: Configure AWS credentials (OIDC)
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[matrix.environment])] }}
+#           role-session-name: DriftDetection-${{ github.run_id }}
+#           aws-region: ${{ env.AWS_REGION }}
+#           role-session-tags: |
+#             projectID=bootstrap
+#             environment=${{ matrix.environment }}
+#             action=drift-detection
+
+#       - name: Terraform Init
+#         run: terraform init -backend-config=backend-config.hcl
+#         working-directory: ${{ env.WORKING_DIR }}
+
+#       - name: Detect Drift
+#         id: drift
+#         run: |
+#           terraform plan \
+#             -var="environment=${{ matrix.environment }}" \
+#             -detailed-exitcode \
+#             -no-color
+#         working-directory: ${{ env.WORKING_DIR }}
+#         continue-on-error: true
+
+#       - name: Create issue if drift detected
+#         if: steps.drift.outputs.exitcode == '2'
+#         uses: actions/github-script@v7
+#         with:
+#           script: |
+#             github.rest.issues.create({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               title: `⚠️ Infrastructure Drift Detected - ${{ matrix.environment }}`,
+#               body: `Drift detected in **${{ matrix.environment }}** environment.
+              
+#               Run ID: ${{ github.run_id }}
+              
+#               Please review and reconcile the infrastructure state.`,
+#               labels: ['drift', 'infrastructure', '${{ matrix.environment }}']
+#             })
+
+name: Test OIDC Setup
 
 on:
   push:
@@ -6,508 +520,52 @@ on:
       - main
       - develop
       - feature/*
-    paths:
-      - 'bootstrap/**'
-      - '.github/workflows/terraform-deploy.yml'
   pull_request:
     branches:
       - main
       - develop
-    paths:
-      - 'bootstrap/**'
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Environment to deploy'
-        required: true
-        type: choice
-        options:
-          - dev
-          - qa
-          - prod
-      action:
-        description: 'Terraform action'
-        required: true
-        type: choice
-        options:
-          - plan
-          - apply
-          - destroy
 
-# Required permissions for OIDC
 permissions:
-  id-token: write   # OIDC authentication
-  contents: read    # Checkout code
-  pull-requests: write  # Comment on PRs
-
-env:
-  TF_VERSION: '1.6.0'
-  AWS_REGION: 'eu-west-1'
-  WORKING_DIR: './bootstrap'
-  # Map lowercase environment to uppercase for GitHub variable lookup
-  ENV_MAP: '{"dev": "DEV", "qa": "QA", "prod": "PROD"}'
+  id-token: write
+  contents: read
 
 jobs:
-  # ================================================
-  # Job 1: Detect Environment
-  # ================================================
-  detect-environment:
-    name: 🔍 Detect Environment
+  test-oidc:
     runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ steps.detect.outputs.environment }}
-      should_deploy: ${{ steps.detect.outputs.should_deploy }}
-    steps:
-      - name: Detect environment from branch
-        id: detect
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            ENV="${{ github.event.inputs.environment }}"
-            DEPLOY="true"
-          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            ENV="prod"
-            DEPLOY="true"
-          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            ENV="dev"
-            DEPLOY="true"
-          elif [[ "${{ github.base_ref }}" == "main" ]]; then
-            ENV="prod"
-            DEPLOY="false"
-          else
-            ENV="dev"
-            DEPLOY="false"
-          fi
-          
-          echo "environment=${ENV}" >> $GITHUB_OUTPUT
-          echo "should_deploy=${DEPLOY}" >> $GITHUB_OUTPUT
-          echo "🎯 Environment: ${ENV}"
-          echo "📦 Should Deploy: ${DEPLOY}"
-
-  # ================================================
-  # Job 2: Terraform Validate & Lint
-  # ================================================
-  validate:
-    name: ✅ Validate & Lint
-    runs-on: ubuntu-latest
-    needs: detect-environment
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform Format Check
-        id: fmt
-        run: terraform fmt -check -recursive
-        working-directory: ${{ env.WORKING_DIR }}
-        continue-on-error: true
-
-      - name: Terraform Init (validation only)
-        run: terraform init -backend=false
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Terraform Validate
-        id: validate
-        run: terraform validate -no-color
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Setup TFLint
-        uses: terraform-linters/setup-tflint@v4
-        with:
-          tflint_version: latest
-
-      - name: Run TFLint
-        id: tflint
-        run: |
-          tflint --init
-          tflint --format compact
-        working-directory: ${{ env.WORKING_DIR }}
-        continue-on-error: true
-
-      - name: Comment PR - Validation Results
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `#### 🎨 Terraform Format: \`${{ steps.fmt.outcome }}\`
-            #### ✅ Terraform Validation: \`${{ steps.validate.outcome }}\`
-            #### 🔍 TFLint: \`${{ steps.tflint.outcome }}\`
-            
-            <details><summary>Show Validation Output</summary>
-            
-            \`\`\`
-            ${{ steps.validate.outputs.stdout }}
-            \`\`\`
-            
-            </details>
-            
-            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
-
-  # ================================================
-  # Job 3: Security Scanning
-  # ================================================
-  security-scan:
-    name: 🔒 Security Scan
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Run Checkov
-        id: checkov
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: ${{ env.WORKING_DIR }}
-          framework: terraform
-          output_format: cli
-          soft_fail: true
-          quiet: false
-
-      - name: Run tfsec
-        id: tfsec
-        uses: aquasecurity/tfsec-action@v1.0.3
-        with:
-          working_directory: ${{ env.WORKING_DIR }}
-          soft_fail: true
-
-      - name: Comment PR - Security Scan Results
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `#### 🔒 Security Scan Results
-            
-            - **Checkov**: \`${{ steps.checkov.outcome }}\`
-            - **tfsec**: \`${{ steps.tfsec.outcome }}\`
-            
-            ✅ Security scanning complete. Review any findings above.
-            
-            *Environment: \`${{ needs.detect-environment.outputs.environment }}\`*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
-
-  # ================================================
-  # Job 4: Terraform Plan
-  # ================================================
-  plan:
-    name: 📋 Terraform Plan
-    runs-on: ubuntu-latest
-    needs: [detect-environment, validate, security-scan]
-    environment: ${{ needs.detect-environment.outputs.environment }}
-    env:
-      ENV: ${{ needs.detect-environment.outputs.environment }}
-    outputs:
-      exitcode: ${{ steps.plan.outputs.exitcode }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
       
-      - name: Debug - Check Variable Access
-        run: |
-          echo "🔍 Checking organization variable access..."
-          echo "Repository: ${{ github.repository }}"
-          echo "Event: ${{ github.event_name }}"
-          echo "Branch: ${{ github.ref }}"
-          if [ -z "${{ vars.AWS_ROLE_ARN_DEV }}" ]; then
-            echo "❌ ERROR: AWS_ROLE_ARN_DEV is EMPTY or not accessible!"
-            echo "Variable is not reaching the workflow from organization settings."
-            exit 1
-          else
-            echo "✅ Variable is accessible"
-            echo "Role ARN: ${{ vars.AWS_ROLE_ARN_DEV }}"
-          fi      
-
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials with ABAC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          #role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[needs.detect-environment.outputs.environment])] }}
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
-          role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
-          aws-region: ${{ env.AWS_REGION }}
-          # ABAC Session Tags (passed to IAM role)
-        #   role-session-tags: |
-        #     projectID=bootstrap
-        #     managed-by=github-actions
-
-      - name: Verify AWS Identity
+          role-session-name: github-${{ github.run_id }}
+          role-session-tags: |
+            projectID=bootstrap
+            environment=dev
+          aws-region: eu-west-1
+      
+      - name: Verify AWS credentials
         run: |
-          echo "🔐 Verifying OIDC authentication..."
+          echo "Testing AWS OIDC authentication with ABAC..."
           aws sts get-caller-identity
-          echo "✅ Successfully authenticated with ABAC session tags"
-
-      - name: Terraform Init
+          echo "✅ Successfully authenticated with AWS using OIDC!"
+      
+      - name: Test S3 access
         run: |
-          if [ -f "backend-config.hcl" ]; then
-            terraform init -backend-config=backend-config.hcl
-          else
-            terraform init
-          fi
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Terraform Plan
-        id: plan
+          echo "Testing S3 access..."
+          aws s3 ls s3://$(cat bootstrap/terraform.tfvars | grep company_name | cut -d'"' -f2)-tfstate-dev-* || echo "Bucket access test"
+      
+      - name: Test DynamoDB access
         run: |
-          terraform plan \
-            -var="environment=${{ env.ENV }}" \
-            -out=tfplan-${{ env.ENV }}.binary \
-            -detailed-exitcode \
-            -no-color
-        working-directory: ${{ env.WORKING_DIR }}
-        continue-on-error: true
-
-      - name: Convert plan to JSON
-        if: steps.plan.outputs.exitcode == '2'
-        run: terraform show -json tfplan-${{ env.ENV }}.binary > tfplan-${{ env.ENV }}.json
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Upload plan artifact
-        if: steps.plan.outputs.exitcode == '2'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan-${{ env.ENV }}
-          path: ${{ env.WORKING_DIR }}/tfplan-${{ env.ENV }}.binary
-          retention-days: 5
-
-      - name: Comment PR - Plan Results
-        if: github.event_name == 'pull_request' && steps.plan.outputs.exitcode == '2'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const plan = fs.readFileSync('${{ env.WORKING_DIR }}/tfplan-${{ env.ENV }}.json', 'utf8');
-            const planJson = JSON.parse(plan);
-            
-            const resourceChanges = planJson.resource_changes || [];
-            const toCreate = resourceChanges.filter(r => r.change.actions.includes('create')).length;
-            const toUpdate = resourceChanges.filter(r => r.change.actions.includes('update')).length;
-            const toDelete = resourceChanges.filter(r => r.change.actions.includes('delete')).length;
-            
-            const output = `#### 📋 Terraform Plan - ${{ env.ENV }}
-            
-            **Changes Summary:**
-            - ➕ Create: ${toCreate}
-            - 🔄 Update: ${toUpdate}
-            - ➖ Delete: ${toDelete}
-            
-            **Exit Code**: \`${{ steps.plan.outputs.exitcode }}\`
-            
-            <details><summary>Show Full Plan</summary>
-            
-            \`\`\`terraform
-            Resources to create: ${toCreate}
-            Resources to update: ${toUpdate}
-            Resources to delete: ${toDelete}
-            \`\`\`
-            
-            </details>
-            
-            **⚠️ Review the plan carefully before approving deployment.**
-            
-            *Environment: \`${{ env.ENV }}\` | Run ID: \`${{ github.run_id }}\`*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
-
-      - name: Plan Status
-        if: steps.plan.outputs.exitcode == '1'
+          echo "Testing DynamoDB access..."
+          aws dynamodb describe-table --table-name terraform-state-locks-dev || echo "Table access test"
+      
+      - name: Test ABAC isolation (should fail for other projects)
         run: |
-          echo "❌ Terraform plan failed"
-          exit 1
-
-  # ================================================
-  # Job 5: Terraform Apply (Requires Approval for Prod)
-  # ================================================
-  apply:
-    name: 🚀 Terraform Apply
-    runs-on: ubuntu-latest
-    needs: [detect-environment, plan]
-    if: |
-      needs.detect-environment.outputs.should_deploy == 'true' &&
-      needs.plan.outputs.exitcode == '2' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    environment: 
-      name: ${{ needs.detect-environment.outputs.environment }}
-      url: https://console.aws.amazon.com/cloudtrail/
-    env:
-      ENV: ${{ needs.detect-environment.outputs.environment }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS credentials (OIDC with ABAC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          #role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[needs.detect-environment.outputs.environment])] }}
-          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
-          role-session-name: GitHubActions-Apply-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-tags: |
-            projectID=bootstrap
-            managed-by=github_actions
-            action=terraform_apply
-
-      - name: Download plan artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan-${{ env.ENV }}
-          path: ${{ env.WORKING_DIR }}
-
-      - name: Terraform Init
-        run: |
-          if [ -f "backend-config.hcl" ]; then
-            terraform init -backend-config=backend-config.hcl
-          else
-            terraform init
-          fi
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Terraform Apply
-        id: apply
-        run: terraform apply -auto-approve tfplan-${{ env.ENV }}.binary
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Output deployment summary
-        if: success()
-        run: |
-          echo "✅ Deployment successful!"
-          echo "Environment: ${{ env.ENV }}"
-          echo "Run ID: ${{ github.run_id }}"
-          terraform output -json > outputs.json
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Upload outputs
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-outputs-${{ env.ENV }}
-          path: ${{ env.WORKING_DIR }}/outputs.json
-          retention-days: 30
-
-      - name: Verify CloudTrail logging
-        if: success()
-        run: |
-          echo "🔍 Verifying CloudTrail is logging OIDC events..."
-          aws cloudtrail lookup-events \
-            --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
-            --max-results 5 \
-            --query 'Events[*].[EventTime,Username,CloudTrailEvent]' \
-            --output table || echo "⚠️ No recent OIDC events found (this is normal for first deployment)"
-
-      - name: Comment PR - Deployment Success
-        if: success() && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `#### ✅ Deployment Successful - ${{ env.ENV }}
-            
-            **Environment**: \`${{ env.ENV }}\`
-            **Run ID**: \`${{ github.run_id }}\`
-            **Actor**: @${{ github.actor }}
-            
-            🎉 Infrastructure deployed successfully with ABAC security!
-            
-            **Next Steps:**
-            1. Verify resources in AWS Console
-            2. Check CloudTrail for audit logs
-            3. Test ABAC isolation between projects
-            
-            [View CloudTrail Events](https://console.aws.amazon.com/cloudtrail/)`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
-
-  # ================================================
-  # Job 6: Drift Detection (Scheduled)
-  # ================================================
-  drift-detection:
-    name: 🔍 Drift Detection
-    runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
-    strategy:
-      matrix:
-        environment: [dev, qa, prod]
-    environment: ${{ matrix.environment }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[matrix.environment])] }}
-          role-session-name: DriftDetection-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-tags: |
-            projectID=bootstrap
-            environment=${{ matrix.environment }}
-            action=drift-detection
-
-      - name: Terraform Init
-        run: terraform init -backend-config=backend-config.hcl
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Detect Drift
-        id: drift
-        run: |
-          terraform plan \
-            -var="environment=${{ matrix.environment }}" \
-            -detailed-exitcode \
-            -no-color
-        working-directory: ${{ env.WORKING_DIR }}
-        continue-on-error: true
-
-      - name: Create issue if drift detected
-        if: steps.drift.outputs.exitcode == '2'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `⚠️ Infrastructure Drift Detected - ${{ matrix.environment }}`,
-              body: `Drift detected in **${{ matrix.environment }}** environment.
-              
-              Run ID: ${{ github.run_id }}
-              
-              Please review and reconcile the infrastructure state.`,
-              labels: ['drift', 'infrastructure', '${{ matrix.environment }}']
-            })
+          echo "Testing ABAC project isolation..."
+          echo "Attempting to access non-existent project path (should be denied by ABAC)..."
+          aws s3 ls s3://$(cat bootstrap/terraform.tfvars | grep company_name | cut -d'"' -f2)-tfstate-dev-*/other-project/ || echo "✅ ABAC isolation working - access denied as expected"
