@@ -9,17 +9,9 @@ terraform {
   }
 }
 
-locals {
-  profile_map = {
-    dev  = "bootstrap-dev"
-    qa   = "bootstrap-qa"
-    prod = "bootstrap-prod"
-  }
-}
 
 provider "aws" {
   region  = var.aws_region
-  profile = local.profile_map[var.environment]
 
   default_tags {
     tags = merge(
