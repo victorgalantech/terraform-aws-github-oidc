@@ -2,29 +2,18 @@ name: 🚀 Terraform Deploy - ABAC Bootstrap
 
 on:
   push:
-    branches:
-      - main
-      - develop
-      - feature/*
-    paths:
-      - 'bootstrap/**'
-      - '.github/workflows/terraform-deploy.yml'
+    branches: [main, develop, "feature/*"]
+    paths: ['bootstrap/**', '.github/workflows/terraform-deploy.yml']
   pull_request:
-    branches:
-      - main
-      - develop
-    paths:
-      - 'bootstrap/**'
+    branches: [main, develop]
+    paths: ['bootstrap/**', '.github/workflows/terraform-deploy.yml']
   workflow_dispatch:
     inputs:
       environment:
         description: 'Environment to deploy'
         required: true
         type: choice
-        options:
-          - dev
-          - qa
-          - prod
+        options: [dev, qa, prod]
       action:
         description: 'Terraform action'
         required: true
@@ -44,45 +33,36 @@ env:
   TF_VERSION: '1.6.0'
   AWS_REGION: 'eu-west-1'
   WORKING_DIR: './bootstrap'
-  # Map lowercase environment to uppercase for GitHub variable lookup
-  ENV_MAP: '{"dev": "DEV", "qa": "QA", "prod": "PROD"}'
 
 jobs:
   # ================================================
   # Job 1: Detect Environment
   # ================================================
   detect-environment:
-    name: 🔍 Detect Environment
-    runs-on: ubuntu-latest
-    outputs:
-      environment: ${{ steps.detect.outputs.environment }}
-      should_deploy: ${{ steps.detect.outputs.should_deploy }}
-    steps:
-      - name: Detect environment from branch
-        id: detect
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            ENV="${{ github.event.inputs.environment }}"
-            DEPLOY="true"
-          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            ENV="prod"
-            DEPLOY="true"
-          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
-            ENV="dev"
-            DEPLOY="true"
-          elif [[ "${{ github.base_ref }}" == "main" ]]; then
-            ENV="prod"
-            DEPLOY="false"
-          else
-            ENV="dev"
-            DEPLOY="false"
-          fi
+      name: 🔍 Detect Environment
+      runs-on: ubuntu-latest
+      outputs:
+        environment: ${{ steps.detect.outputs.environment }}
+        env_upper: ${{ steps.detect.outputs.env_upper }}
+        should_deploy: ${{ steps.detect.outputs.should_deploy }}
+      steps:
+        - id: detect
+          run: |
+            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              ENV="${{ github.event.inputs.environment }}"
+              DEPLOY="true"
+            elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+              ENV="prod"
+              DEPLOY="true"
+            else
+              ENV="dev"
+              DEPLOY="false"
+            fi
+            
+            echo "environment=${ENV}" >> $GITHUB_OUTPUT
+            echo "env_upper=$(echo ${ENV} | tr '[:lower:]' '[:upper:]')" >> $GITHUB_OUTPUT
+            echo "should_deploy=${DEPLOY}" >> $GITHUB_OUTPUT
           
-          echo "environment=${ENV}" >> $GITHUB_OUTPUT
-          echo "should_deploy=${DEPLOY}" >> $GITHUB_OUTPUT
-          echo "🎯 Environment: ${ENV}"
-          echo "📦 Should Deploy: ${DEPLOY}"
-
   # ================================================
   # Job 2: Terraform Validate & Lint
   # ================================================
@@ -209,7 +189,6 @@ jobs:
     name: 📋 Terraform Plan
     runs-on: ubuntu-latest
     needs: [detect-environment, validate, security-scan]
-    environment: ${{ needs.detect-environment.outputs.environment }}
     env:
       ENV: ${{ needs.detect-environment.outputs.environment }}
     outputs:
@@ -226,7 +205,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[needs.detect-environment.outputs.environment])] }}
+          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', needs.detect-environment.outputs.env_upper)] }}
           role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
@@ -327,7 +306,7 @@ jobs:
           echo "❌ Terraform plan failed"
           exit 1
 
-  # ================================================
+# ================================================
   # Job 5: Terraform Apply (Requires Approval for Prod)
   # ================================================
   apply:
@@ -338,11 +317,14 @@ jobs:
       needs.detect-environment.outputs.should_deploy == 'true' &&
       needs.plan.outputs.exitcode == '2' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    
     environment: 
       name: ${{ needs.detect-environment.outputs.environment }}
       url: https://console.aws.amazon.com/cloudtrail/
+    
     env:
       ENV: ${{ needs.detect-environment.outputs.environment }}
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -352,26 +334,25 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Configure AWS credentials (OIDC with ABAC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[needs.detect-environment.outputs.environment])] }}
-          role-session-name: GitHubActions-Apply-${{ github.run_id }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-tags: |
-            projectID=bootstrap
-            environment=${{ needs.detect-environment.outputs.environment }}
-            github-org=${{ github.repository_owner }}
-            github-repo=${{ github.repository }}
-            github-actor=${{ github.actor }}
-            managed-by=github-actions
-            action=terraform-apply
-
       - name: Download plan artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan-${{ env.ENV }}
           path: ${{ env.WORKING_DIR }}
+
+      - name: Configure AWS credentials (OIDC with ABAC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', needs.detect-environment.outputs.env_upper)] }}
+          role-session-name: GitHubApply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-tags: |
+            projectID=bootstrap
+            environment=${{ env.ENV }}
+            github-org=${{ github.repository_owner }}
+            github-actor=${{ github.actor }}
+            managed-by=github-actions
+            action=terraform-apply
 
       - name: Terraform Init
         run: |
@@ -384,7 +365,7 @@ jobs:
 
       - name: Terraform Apply
         id: apply
-        run: terraform apply -auto-approve tfplan-${{ env.ENV }}.binary
+        run: terraform apply -auto-approve tfplan.binary
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Output deployment summary
@@ -447,14 +428,20 @@ jobs:
   drift-detection:
     name: 🔍 Drift Detection
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
+      fail-fast: false
       matrix:
         environment: [dev, qa, prod]
-    environment: ${{ matrix.environment }}
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Prepare environment variables
+        id: prep
+        run: |
+          echo "ENV_UPPER=$(echo ${{ matrix.environment }} | tr '[:lower:]' '[:upper:]')" >> $GITHUB_OUTPUT
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -464,8 +451,8 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', fromJSON(env.ENV_MAP)[matrix.environment])] }}
-          role-session-name: DriftDetection-${{ github.run_id }}
+          role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', steps.prep.outputs.ENV_UPPER)] }}
+          role-session-name: DriftDetection-${{ github.run_id }}-${{ matrix.environment }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
             projectID=bootstrap
@@ -473,12 +460,18 @@ jobs:
             action=drift-detection
 
       - name: Terraform Init
-        run: terraform init -backend-config=backend-config.hcl
+        run: |
+          if [ -f "backend-config.hcl" ]; then
+            terraform init -backend-config=backend-config.hcl
+          else
+            terraform init
+          fi
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Detect Drift
         id: drift
         run: |
+          # El exit code 2 indica que hay cambios (drift)
           terraform plan \
             -var="environment=${{ matrix.environment }}" \
             -detailed-exitcode \
@@ -495,10 +488,14 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `⚠️ Infrastructure Drift Detected - ${{ matrix.environment }}`,
-              body: `Drift detected in **${{ matrix.environment }}** environment.
+              body: `Se ha detectado una desviación (drift) en el entorno **${{ matrix.environment }}**.
               
-              Run ID: ${{ github.run_id }}
+              El estado real en AWS no coincide con la configuración de Terraform.
               
-              Please review and reconcile the infrastructure state.`,
+              **Detalles de la ejecución:**
+              - Run ID: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+              - Fecha: ${new Date().toUTCString()}
+              
+              Por favor, revisa el plan y aplica los cambios necesarios para reconciliar la infraestructura.`,
               labels: ['drift', 'infrastructure', '${{ matrix.environment }}']
             })
