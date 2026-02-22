@@ -210,18 +210,44 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
             projectID=bootstrap
-            environment=${{ needs.detect-environment.outputs.environment }}
+            environment=${{ env.ENV }}
             github-org=${{ github.repository_owner }}
-            github-repo=${{ github.repository }}
             github-actor=${{ github.actor }}
-            github-sha=${{ github.sha }}
             managed-by=github-actions
+            action=terraform-apply
 
       - name: Verify AWS Identity
         run: |
           echo "🔐 Verifying OIDC authentication..."
           aws sts get-caller-identity
           echo "✅ Successfully authenticated with ABAC session tags"
+
+      - name: Generate Backend Config
+        run: |
+          # 1. Definimos el prefijo desde GitHub Vars
+          PREFIX="${{ vars.TF_STATE_BUCKET_NAME_PREFIX }}"
+          
+          # 2. Obtenemos el Account ID directamente de AWS (ya que el step anterior nos autenticó)
+          ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+          
+          # 3. Definimos el entorno (dev, qa, prod)
+          ENV="${{ needs.detect-environment.outputs.environment }}"
+          
+          # 4. Construimos el nombre completo: prefijo-entorno-accountid
+          FULL_BUCKET_NAME="${PREFIX}-${ENV}-${ACCOUNT_ID}"
+          DYNAMO_TABLE="terraform-state-locks-${ENV}"
+          
+          echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
+          
+          # 5. Generamos el archivo
+          cat > backend-config.hcl <<EOF
+          bucket         = "${FULL_BUCKET_NAME}"
+          key            = "bootstrap/terraform.tfstate"
+          region         = "${{ env.AWS_REGION }}"
+          dynamodb_table = "${DYNAMO_TABLE}"
+          encrypt        = true
+          EOF
+        working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Init
         run: |
