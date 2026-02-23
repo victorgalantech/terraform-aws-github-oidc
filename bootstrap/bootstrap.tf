@@ -480,6 +480,34 @@ data "aws_iam_policy_document" "terraform_deployment" {
     resources = ["*"]
   }
 
+  # S3 Read permissions for ALL buckets (including CloudTrail)
+  statement {
+    sid    = "S3ReadAllBuckets"
+    effect = "Allow"
+    
+    actions = [
+      "s3:GetBucketLocation",
+      "s3:GetBucketVersioning",
+      "s3:GetBucketEncryption",
+      "s3:GetEncryptionConfiguration",
+      "s3:GetBucketPublicAccessBlock",
+      "s3:GetBucketPolicy",
+      "s3:GetBucketTagging",
+      "s3:GetLifecycleConfiguration",
+      "s3:GetBucketAcl",
+      "s3:GetBucketCORS",
+      "s3:GetBucketObjectLockConfiguration",
+      "s3:GetBucketWebsite",
+      "s3:GetBucketLogging",
+      "s3:GetBucketNotification",
+      "s3:GetBucketRequestPayment",
+      "s3:GetReplicationConfiguration",
+      "s3:GetAccelerateConfiguration"
+    ]
+    
+    resources = ["arn:aws:s3:::*"]
+  }
+
   # IAM Management - Full permissions for bootstrap project
   statement {
     sid    = "IAMManagement"
