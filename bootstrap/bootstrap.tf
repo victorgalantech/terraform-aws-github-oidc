@@ -655,7 +655,7 @@ resource "aws_s3_bucket" "terraform_state" {
     {
       Name          = local.tfstate_bucket_name
       resource-type = "state-backend"  # Shared across ALL projects
-      test_tag      = "SuperTestTag"
+      super_test_tag = "SuperTestTag"
     }
   )
 }
