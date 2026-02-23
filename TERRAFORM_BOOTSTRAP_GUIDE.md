@@ -110,7 +110,8 @@ The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permi
                 "iam:GetOpenIDConnectProvider",
                 "iam:ListOpenIDConnectProviders",
                 "iam:TagOpenIDConnectProvider",
-                "iam:UpdateOpenIDConnectProviderThumbprint"
+                "iam:UpdateOpenIDConnectProviderThumbprint",
+                "iam:UntagOpenIDConnectProvider"
             ],
             "Resource": "*"
         },
@@ -138,7 +139,10 @@ The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permi
                 "iam:TagPolicy",
                 "iam:ListInstanceProfilesForRole",
                 "iam:GetPolicyVersion",
-                "iam:ListPolicyVersions"
+                "iam:ListPolicyVersions",
+                "iam:UntagPolicy",
+                "iam:CreatePolicyVersion",
+                "iam:UntagRole"
             ],
             "Resource": "*"
         },

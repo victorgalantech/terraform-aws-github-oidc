@@ -149,11 +149,14 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "s3:GetBucketLocation",
       "s3:GetBucketVersioning",
       "s3:GetBucketEncryption",
+      "s3:GetEncryptionConfiguration",
       "s3:GetBucketPublicAccessBlock",
       "s3:GetBucketPolicy",
       "s3:GetBucketTagging",
       "s3:GetLifecycleConfiguration",
-      "s3:GetBucketAcl"
+      "s3:GetBucketAcl",
+      "s3:GetBucketCORS",
+      "s3:GetBucketObjectLockConfiguration"
     ]
 
     resources = var.enable_abac ? ["*"] : ["arn:aws:s3:::${var.company_name}-tfstate-*"]
@@ -385,7 +388,8 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "dynamodb:PutItem",
       "dynamodb:GetItem",
       "dynamodb:DeleteItem",
-      "dynamodb:DescribeTable"
+      "dynamodb:DescribeTable",
+      "dynamodb:DescribeTimeToLive"
     ]
 
     resources = var.enable_abac ? ["*"] : [
