@@ -570,6 +570,8 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "cloudtrail:StopLogging",
       "cloudtrail:PutEventSelectors",
       "cloudtrail:GetEventSelectors",
+      "cloudtrail:PutInsightSelectors",
+      "cloudtrail:GetInsightSelectors",
       "cloudtrail:AddTags",
       "cloudtrail:RemoveTags",
       "cloudtrail:ListTags",
