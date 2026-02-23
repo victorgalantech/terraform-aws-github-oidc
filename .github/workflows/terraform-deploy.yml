@@ -265,7 +265,7 @@ jobs:
           environment  = "${{ env.ENV }}"
           github_org   = "${{ vars.GITHUB_ORG }}"
           github_repo  = "*"
-          company_name = "${{ vars.GITHUB_ORG }}"
+          company_name = "${{ vars.COMPANY_NAME }}"
           
           enable_branch_restriction = true
           allowed_branches         = ["main", "develop", "release/*", "feature/*"]
@@ -437,7 +437,7 @@ jobs:
           environment  = "${{ env.ENV }}"
           github_org   = "${{ vars.GITHUB_ORG }}"
           github_repo  = "*"
-          company_name = "${{ vars.GITHUB_ORG }}"
+          company_name = "${{ vars.COMPANY_NAME }}"
           
           enable_branch_restriction = true
           allowed_branches         = ["main", "develop", "release/*", "feature/*"]
