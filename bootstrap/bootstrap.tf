@@ -476,6 +476,89 @@ data "aws_iam_policy_document" "terraform_deployment" {
     resources = ["*"]
   }
 
+  # IAM Management - Full permissions for bootstrap project
+  statement {
+    sid    = "IAMManagement"
+    effect = "Allow"
+    
+    actions = [
+      "iam:CreateOpenIDConnectProvider",
+      "iam:DeleteOpenIDConnectProvider",
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviders",
+      "iam:TagOpenIDConnectProvider",
+      "iam:UntagOpenIDConnectProvider",
+      "iam:UpdateOpenIDConnectProviderThumbprint",
+      "iam:CreateRole",
+      "iam:DeleteRole",
+      "iam:GetRole",
+      "iam:ListRoles",
+      "iam:UpdateRole",
+      "iam:UpdateAssumeRolePolicy",
+      "iam:TagRole",
+      "iam:UntagRole",
+      "iam:PutRolePolicy",
+      "iam:DeleteRolePolicy",
+      "iam:GetRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:AttachRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:ListAttachedRolePolicies",
+      "iam:CreatePolicy",
+      "iam:DeletePolicy",
+      "iam:GetPolicy",
+      "iam:GetPolicyVersion",
+      "iam:ListPolicies",
+      "iam:ListPolicyVersions",
+      "iam:CreatePolicyVersion",
+      "iam:DeletePolicyVersion",
+      "iam:SetDefaultPolicyVersion",
+      "iam:TagPolicy",
+      "iam:UntagPolicy",
+      "iam:PassRole"
+    ]
+    
+    resources = ["*"]
+  }
+
+  # CloudTrail Management
+  statement {
+    sid    = "CloudTrailManagement"
+    effect = "Allow"
+    
+    actions = [
+      "cloudtrail:CreateTrail",
+      "cloudtrail:UpdateTrail",
+      "cloudtrail:DeleteTrail",
+      "cloudtrail:GetTrail",
+      "cloudtrail:GetTrailStatus",
+      "cloudtrail:DescribeTrails",
+      "cloudtrail:ListTrails",
+      "cloudtrail:StartLogging",
+      "cloudtrail:StopLogging",
+      "cloudtrail:PutEventSelectors",
+      "cloudtrail:GetEventSelectors",
+      "cloudtrail:AddTags",
+      "cloudtrail:RemoveTags",
+      "cloudtrail:ListTags",
+      "cloudtrail:LookupEvents"
+    ]
+    
+    resources = ["*"]
+  }
+
+  # STS permissions for identity verification
+  statement {
+    sid    = "STSPermissions"
+    effect = "Allow"
+    
+    actions = [
+      "sts:GetCallerIdentity"
+    ]
+    
+    resources = ["*"]
+  }
+
   # ================================================================
   # FUTURE: Add project-specific resources with projectID ABAC
   # ================================================================
