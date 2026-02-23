@@ -654,9 +654,6 @@ resource "aws_s3_bucket" "terraform_state" {
     var.default_resource_tags,
     {
       Name          = local.tfstate_bucket_name
-      projectID     = var.project_id
-      environment   = var.environment
-      managed-by    = "terraform"
       resource-type = "state-backend"  # Shared across ALL projects
     }
   )

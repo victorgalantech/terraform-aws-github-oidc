@@ -142,7 +142,8 @@ The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permi
                 "iam:ListPolicyVersions",
                 "iam:UntagPolicy",
                 "iam:CreatePolicyVersion",
-                "iam:UntagRole"
+                "iam:UntagRole",
+                "iam:DeletePolicyVersion"
             ],
             "Resource": "*"
         },
