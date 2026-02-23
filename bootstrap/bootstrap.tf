@@ -781,8 +781,6 @@ resource "aws_dynamodb_table" "terraform_locks" {
     var.default_resource_tags,
     {
       Name          = "terraform-state-locks-${var.environment}"
-      projectID     = var.project_id
-      environment   = var.environment
       resource-type = "state-backend"  # Shared across ALL projects
     }
   )
