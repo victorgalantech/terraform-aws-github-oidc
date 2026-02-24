@@ -405,17 +405,17 @@ jobs:
 
       - name: Generate Backend Config
         run: |
-          # 1. Definimos el prefijo desde GitHub Vars
-          PREFIX="${{ vars.TF_STATE_BUCKET_NAME_PREFIX }}"
+          # 1. Definimos el company name desde GitHub Vars
+          COMPANY="${{ vars.COMPANY_NAME }}"
           
-          # 2. Obtenemos el Account ID directamente de AWS (ya que el step anterior nos autenticó)
+          # 2. Obtenemos el Account ID directamente de AWS
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
           
-          # 3. Definimos el entorno (dev, qa, prod)
+          # 3. Definimos el entorno
           ENV="${{ needs.detect-environment.outputs.environment }}"
           
-          # 4. Construimos el nombre completo: prefijo-entorno-accountid
-          FULL_BUCKET_NAME="${PREFIX}-${ENV}-${ACCOUNT_ID}"
+          # 4. Construimos el nombre completo: company-tfstate-entorno-accountid
+          FULL_BUCKET_NAME="${COMPANY}-tfstate-${ENV}-${ACCOUNT_ID}"
           DYNAMO_TABLE="terraform-state-locks-${ENV}"
           
           echo " Usando Bucket: ${FULL_BUCKET_NAME}"
@@ -430,47 +430,23 @@ jobs:
           EOF
         working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Generate terraform.tfvars
-        run: |
-          cat > terraform.tfvars <<EOF
-          aws_region   = "${{ env.AWS_REGION }}"
-          environment  = "${{ env.ENV }}"
-          github_org   = "${{ vars.COMPANY_NAME }}"
-          github_repo  = "*"
-          company_name = "${{ vars.COMPANY_NAME }}"
-          
-          enable_branch_restriction = true
-          allowed_branches         = ["main", "develop", "release/*", "feature/*"]
-          
-          enable_cloudtrail        = true
-          cloudtrail_retention_days = 90
-          
-          tags = {
-            ManagedBy = "Terraform"
-            Purpose   = "GitHubActionsOIDC"
-            Team      = "DevOps"
-          }
-          EOF
-        working-directory: ${{ env.WORKING_DIR }}
-
       - name: Terraform Init
         run: |
-          if [ -f "backend-config.hcl" ]; then
-            terraform init -backend-config=backend-config.hcl
-          else
-            terraform init
-          fi
+          terraform init \
+              -backend-config=backend-config.hcl \
+              -input=false \
+              -reconfigure
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Apply
         id: apply
-        run: terraform apply -auto-approve tfplan.binary
+        run: terraform apply -auto-approve tfplan-${{ env.ENV }}.binary
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Output deployment summary
         if: success()
         run: |
-          echo "✅ Deployment successful!"
+          echo " Deployment successful!"
           echo "Environment: ${{ env.ENV }}"
           echo "Run ID: ${{ github.run_id }}"
           terraform output -json > outputs.json
@@ -560,8 +536,8 @@ jobs:
 
       - name: Generate Backend Config
         run: |
-          # 1. Definimos el prefijo desde GitHub Vars
-          PREFIX="${{ vars.TF_STATE_BUCKET_NAME_PREFIX }}"
+          # 1. Definimos el company name desde GitHub Vars
+          COMPANY="${{ vars.COMPANY_NAME }}"
           
           # 2. Obtenemos el Account ID directamente de AWS (ya que el step anterior nos autenticó)
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
@@ -569,8 +545,8 @@ jobs:
           # 3. Definimos el entorno (dev, qa, prod)
           ENV="${{ matrix.environment }}"
           
-          # 4. Construimos el nombre completo: prefijo-entorno-accountid
-          FULL_BUCKET_NAME="${PREFIX}-${ENV}-${ACCOUNT_ID}"
+          # 4. Construimos el nombre completo: company-tfstate-entorno-accountid
+          FULL_BUCKET_NAME="${COMPANY}-tfstate-${ENV}-${ACCOUNT_ID}"
           DYNAMO_TABLE="terraform-state-locks-${ENV}"
           
           echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
