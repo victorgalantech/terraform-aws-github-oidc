@@ -263,7 +263,7 @@ jobs:
           cat > terraform.tfvars <<EOF
           aws_region   = "${{ env.AWS_REGION }}"
           environment  = "${{ env.ENV }}"
-          github_org   = "${{ vars.GITHUB_ORG }}"
+          github_org   = "${{ vars.COMPANY_NAME }}"
           github_repo  = "*"
           company_name = "${{ vars.COMPANY_NAME }}"
           
@@ -435,7 +435,7 @@ jobs:
           cat > terraform.tfvars <<EOF
           aws_region   = "${{ env.AWS_REGION }}"
           environment  = "${{ env.ENV }}"
-          github_org   = "${{ vars.GITHUB_ORG }}"
+          github_org   = "${{ vars.COMPANY_NAME }}"
           github_repo  = "*"
           company_name = "${{ vars.COMPANY_NAME }}"
           
@@ -590,7 +590,7 @@ jobs:
           cat > terraform.tfvars <<EOF
           aws_region   = "${{ env.AWS_REGION }}"
           environment  = "${{ matrix.environment }}"
-          github_org   = "${{ vars.GITHUB_ORG }}"
+          github_org   = "${{ vars.COMPANY_NAME }}"
           github_repo  = "${{ vars.GITHUB_REPO }}"
           company_name = "${{ vars.COMPANY_NAME }}"
           
