@@ -225,7 +225,7 @@ jobs:
       - name: Generate Backend Config
         run: |
           # 1. Definimos el prefijo desde GitHub Vars
-          PREFIX="${{ vars.TF_STATE_BUCKET_NAME_PREFIX }}"
+          PREFIX="${{ vars.COMPANY_NAME }}"
           
           # 2. Obtenemos el Account ID directamente de AWS (ya que el step anterior nos autenticó)
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
@@ -234,7 +234,7 @@ jobs:
           ENV="${{ needs.detect-environment.outputs.environment }}"
           
           # 4. Construimos el nombre completo: prefijo-entorno-accountid
-          FULL_BUCKET_NAME="${PREFIX}-${ENV}-${ACCOUNT_ID}"
+          FULL_BUCKET_NAME="${PREFIX}-tfstate-${ENV}-${ACCOUNT_ID}"
           DYNAMO_TABLE="terraform-state-locks-${ENV}"
           
           echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
@@ -592,7 +592,7 @@ jobs:
           environment  = "${{ matrix.environment }}"
           github_org   = "${{ vars.GITHUB_ORG }}"
           github_repo  = "${{ vars.GITHUB_REPO }}"
-          company_name = "${{ vars.TF_STATE_BUCKET_NAME_PREFIX }}"
+          company_name = "${{ vars.COMPANY_NAME }}"
           
           enable_branch_restriction = false
           allowed_branches         = ["main", "develop", "release/*"]
