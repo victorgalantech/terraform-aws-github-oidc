@@ -251,11 +251,10 @@ jobs:
 
       - name: Terraform Init
         run: |
-          if [ -f "backend-config.hcl" ]; then
-            terraform init -backend-config=backend-config.hcl
-          else
-            terraform init
-          fi
+          terraform init \
+              -backend-config=backend-config.hcl \
+              -input=false \
+              -reconfigure
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Generate terraform.tfvars
@@ -277,6 +276,7 @@ jobs:
             ManagedBy = "Terraform"
             Purpose   = "GitHubActionsOIDC"
             Team      = "DevOps"
+            Project   = "Bootstrap"
           }
           EOF
         working-directory: ${{ env.WORKING_DIR }}
