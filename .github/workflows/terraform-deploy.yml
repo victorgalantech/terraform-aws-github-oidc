@@ -461,6 +461,7 @@ jobs:
             -out=tfplan-${{ env.ENV }}.binary \
             -detailed-exitcode \
             -no-color
+        working-directory: ${{ env.WORKING_DIR }} 
 
       - name: Terraform Apply
         id: apply
