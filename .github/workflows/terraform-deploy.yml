@@ -362,10 +362,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: [detect-environment, plan]
     
-    environment: 
-      name: ${{ needs.detect-environment.outputs.environment }}
-      url: https://console.aws.amazon.com/cloudtrail/
-    
     env:
       ENV: ${{ needs.detect-environment.outputs.environment }}
       
