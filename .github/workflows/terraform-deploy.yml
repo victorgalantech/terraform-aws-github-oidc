@@ -290,7 +290,6 @@ jobs:
             -detailed-exitcode \
             -no-color
         working-directory: ${{ env.WORKING_DIR }}
-        continue-on-error: true
 
       - name: Convert plan to JSON
         if: steps.plan.outputs.exitcode == '2'
@@ -378,18 +377,12 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Download plan artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan-${{ env.ENV }}
-          path: ${{ env.WORKING_DIR }}
-
-      - name: Configure AWS credentials (OIDC with ABAC)
+      
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', needs.detect-environment.outputs.env_upper)] }}
-          role-session-name: GitHubApply-${{ github.run_id }}
+          role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
             projectID=bootstrap
@@ -399,22 +392,28 @@ jobs:
             managed-by=github-actions
             action=terraform-apply
 
+      - name: Verify AWS Identity
+        run: |
+          echo "🔐 Verifying OIDC authentication..."
+          aws sts get-caller-identity
+          echo "✅ Successfully authenticated with ABAC session tags"
+
       - name: Generate Backend Config
         run: |
-          # 1. Definimos el company name desde GitHub Vars
-          COMPANY="${{ vars.COMPANY_NAME }}"
+          # 1. Definimos el prefijo desde GitHub Vars
+          PREFIX="${{ vars.COMPANY_NAME }}"
           
-          # 2. Obtenemos el Account ID directamente de AWS
+          # 2. Obtenemos el Account ID directamente de AWS (ya que el step anterior nos autenticó)
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
           
-          # 3. Definimos el entorno
+          # 3. Definimos el entorno (dev, qa, prod)
           ENV="${{ needs.detect-environment.outputs.environment }}"
           
-          # 4. Construimos el nombre completo: company-tfstate-entorno-accountid
-          FULL_BUCKET_NAME="${COMPANY}-tfstate-${ENV}-${ACCOUNT_ID}"
+          # 4. Construimos el nombre completo: prefijo-entorno-accountid
+          FULL_BUCKET_NAME="${PREFIX}-tfstate-${ENV}-${ACCOUNT_ID}"
           DYNAMO_TABLE="terraform-state-locks-${ENV}"
           
-          echo " Usando Bucket: ${FULL_BUCKET_NAME}"
+          echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
           
           # 5. Generamos el archivo
           cat > backend-config.hcl <<EOF
@@ -433,6 +432,39 @@ jobs:
               -input=false \
               -reconfigure
         working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Generate terraform.tfvars
+        run: |
+          cat > terraform.tfvars <<EOF
+          aws_region   = "${{ env.AWS_REGION }}"
+          environment  = "${{ env.ENV }}"
+          github_org   = "${{ vars.COMPANY_NAME }}"
+          github_repo  = "*"
+          company_name = "${{ vars.COMPANY_NAME }}"
+          
+          enable_branch_restriction = true
+          allowed_branches         = ["main", "develop", "release/*", "feature/*"]
+          
+          enable_cloudtrail        = true
+          cloudtrail_retention_days = 90
+          
+          tags = {
+            ManagedBy = "Terraform"
+            Purpose   = "GitHubActionsOIDC"
+            Team      = "DevOps"
+            Project   = "Bootstrap"
+          }
+          EOF
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -var="environment=${{ env.ENV }}" \
+            -out=tfplan-${{ env.ENV }}.binary \
+            -detailed-exitcode \
+            -no-color
 
       - name: Terraform Apply
         id: apply
