@@ -23,16 +23,6 @@ output "terraform_state_bucket_arn" {
   value       = aws_s3_bucket.terraform_state.arn
 }
 
-output "dynamodb_lock_table" {
-  description = "DynamoDB table name for state locking"
-  value       = aws_dynamodb_table.terraform_locks.id
-}
-
-output "dynamodb_lock_table_arn" {
-  description = "ARN of the DynamoDB table for state locking"
-  value       = aws_dynamodb_table.terraform_locks.arn
-}
-
 output "aws_account_id" {
   description = "AWS Account ID"
   value       = local.account_id
@@ -66,11 +56,10 @@ output "cloudtrail_arn" {
 output "backend_config" {
   description = "Backend configuration for state migration"
   value = {
-    bucket         = aws_s3_bucket.terraform_state.id
-    key            = "bootstrap/terraform.tfstate"
-    region         = local.region
-    dynamodb_table = aws_dynamodb_table.terraform_locks.id
-    encrypt        = true
+    bucket  = aws_s3_bucket.terraform_state.id
+    key     = "bootstrap/terraform.tfstate"
+    region  = local.region
+    encrypt = true
   }
 }
 
@@ -95,7 +84,6 @@ output "next_steps" {
   - OIDC Provider: ${aws_iam_openid_connect_provider.github_actions.arn}
   - IAM Role: ${aws_iam_role.github_actions.name}
   - S3 State Bucket: ${aws_s3_bucket.terraform_state.id}
-  - DynamoDB Lock Table: ${aws_dynamodb_table.terraform_locks.id}
   ${var.enable_cloudtrail ? "- CloudTrail: ${aws_cloudtrail.centralized_audit[0].name} (enabled for audit logging)" : "- CloudTrail: disabled"}
   
   EOT

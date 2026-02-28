@@ -1,10 +1,10 @@
 # Terraform Bootstrap Guide for GitHub Actions OIDC
 
-This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `bootstrap-{env}` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, S3 state backend, and DynamoDB locking - no external dependencies required.
+This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `bootstrap-{env}` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, and S3 state backend - no external dependencies required.
 
 **Repository:** `terraform-aws-oidc-bootstrap`
 
-This approach automates the creation of OIDC providers, IAM roles, S3 state backend, and DynamoDB locking table, followed by seamless state migration to S3.
+This approach automates the creation of OIDC providers, IAM roles, and S3 state backend, followed by seamless state migration to S3.
 
 ## 📋 Table of Contents
 
@@ -46,10 +46,9 @@ This **single repository** creates your complete CI/CD foundation:
 2. **IAM Role** - `github-actions-terraform-{environment}` with ABAC session tagging
 3. **IAM Policy** - `TerraformDeploymentPolicy-{environment}` with ABAC conditions (expandable for Lambda, ECS, Glue, Bedrock)
 4. **S3 Bucket** - `{company}-tfstate-{environment}-{account-id}` (versioned, encrypted, lifecycle rules, public access blocked, TLS 1.2+ enforced)
-5. **DynamoDB Table** - `terraform-state-locks-{environment}` (point-in-time recovery, pay-per-request)
 6. **CloudTrail** - `centralized-audit-trail-{environment}` (optional, immutable Object Lock, x-day retention, multi-region)
-7. **Automated State Migration** - Seamless local → S3 transition
-8. **ABAC Security Model** - Attribute-based access control with project and environment isolation
+6. **Automated State Migration** - Seamless local → S3 transition
+7. **ABAC Security Model** - Attribute-based access control with project and environment isolation
 
 ---
 
@@ -80,7 +79,6 @@ The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permi
 - Create and manage IAM roles and policies
 - Create and manage CloudTrial
 - Create and manage S3 for terraform state bucket
-- Create and manage DynamoDB table for terrafomr state lock
 - **Does NOT** include resource provisioning permissions (EC2, Lambda, Bedrock, etc.) or PassRole capability
 
 ### Create the User in AWS Console
@@ -208,28 +206,7 @@ The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permi
                 "arn:aws:s3:::*-tfstate-*/*"
             ]
         },
-        {
-            "Sid": "ManageDynamoDBForTerraform",
-            "Effect": "Allow",
-            "Action": [
-                "dynamodb:CreateTable",
-                "dynamodb:DeleteTable",
-                "dynamodb:DescribeTable",
-                "dynamodb:DescribeContinuousBackups",
-                "dynamodb:UpdateContinuousBackups",
-                "dynamodb:ListTables",
-                "dynamodb:ListTagsOfResource",
-                "dynamodb:TagResource",
-                "dynamodb:UntagResource",
-                "dynamodb:UpdateTable",
-                "dynamodb:PutItem",
-                "dynamodb:GetItem",
-                "dynamodb:DeleteItem",
-                "dynamodb:DescribeTimeToLive"
-            ],
-            "Resource": "arn:aws:dynamodb:*:*:table/terraform-state-locks-*"
-        },
-        {
+{
             "Sid": "ManageS3ForCloudTrail",
             "Effect": "Allow",
             "Action": [
@@ -454,7 +431,6 @@ terraform plan -out=tfplan
   - `aws_s3_bucket_public_access_block.terraform_state`
   - `aws_s3_bucket_policy.terraform_state`
   - `aws_s3_bucket_lifecycle_configuration.terraform_state`
-  - `aws_dynamodb_table.terraform_locks`
   - `aws_iam_openid_connect_provider.github_actions`
   - `aws_iam_policy.terraform_deployment`
   - `aws_iam_role.github_actions`
@@ -472,7 +448,6 @@ Plan: 11 to add, 0 to change, 0 to destroy.
 Changes to Outputs:
   + github_actions_role_arn = "arn:aws:iam::{AWS-ACCOUNT-ID}:role/github-actions-terraform-dev"
   + terraform_state_bucket  = "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}"
-  + dynamodb_lock_table     = "terraform-state-locks-dev"
 ```
 
 ---
@@ -499,7 +474,6 @@ Type `yes` when prompted.
 ```
 aws_iam_openid_connect_provider.github_actions: Creating...
 aws_s3_bucket.terraform_state: Creating...
-aws_dynamodb_table.terraform_locks: Creating...
 ...
 Apply complete! Resources: 11 added, 0 changed, 0 destroyed.
 
@@ -508,7 +482,6 @@ Outputs:
 - OIDC Provider: arn:aws:iam::{AWS-ACCOUNT-ID}:oidc-provider/token.actions.githubusercontent.com
 - IAM Role: github-actions-terraform-dev
 - S3 State Bucket: victorgalantech-tfstate-dev-{AWS-ACCOUNT-ID}
-- DynamoDB Lock Table: terraform-state-locks-dev
 - CloudTrail: disabled
 ...
 ```
@@ -527,8 +500,6 @@ aws iam get-role --role-name github-actions-terraform-dev --profile bootstrap-de
 # Verify S3 bucket (Terraform state)
 aws s3 ls --profile bootstrap-dev | grep tfstate
 
-# Verify DynamoDB table
-aws dynamodb describe-table --table-name terraform-state-locks-dev --profile bootstrap-dev
 
 # Verify CloudTrail (if enabled)
 aws cloudtrail get-trail-status --name github-actions-oidc-dev --profile bootstrap-dev
@@ -562,14 +533,12 @@ Create `backend-config.hcl` with values from outputs:
 # Get values from Terraform outputs
 BUCKET=$(terraform output -raw terraform_state_bucket)
 REGION=$(terraform output -raw aws_region)
-DYNAMODB_TABLE=$(terraform output -raw dynamodb_lock_table)
 
 # Create backend configuration file
 cat > backend-config.hcl <<EOF
 bucket         = "$BUCKET"
 key            = "bootstrap/terraform.tfstate"
 region         = "$REGION"
-dynamodb_table = "$DYNAMODB_TABLE"
 encrypt        = true
 EOF
 
@@ -582,7 +551,6 @@ cat backend-config.hcl
 bucket         = "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}"
 key            = "bootstrap/terraform.tfstate"
 region         = "eu-west-1"
-dynamodb_table = "terraform-state-locks-dev"
 encrypt        = true
 ```
 
@@ -653,7 +621,6 @@ aws s3 ls s3://$BUCKET/bootstrap/ --profile bootstrap-dev
 
 ### 4.6: Test State Lock
 
-Verify DynamoDB locking works:
 
 ```bash
 # Run a plan - this will acquire a lock
@@ -682,7 +649,6 @@ data.aws_iam_policy_document.github_actions_assume_role
 data.aws_iam_policy_document.terraform_deployment
 data.aws_iam_policy_document.terraform_state_bucket_policy
 data.aws_region.current
-aws_dynamodb_table.terraform_locks
 aws_iam_openid_connect_provider.github_actions
 aws_iam_policy.terraform_deployment
 aws_iam_role.github_actions
@@ -709,9 +675,6 @@ aws s3api get-bucket-encryption \
   --bucket $(terraform output -raw terraform_state_bucket) \
   --profile bootstrap-dev
 
-# Check DynamoDB point-in-time recovery
-aws dynamodb describe-continuous-backups \
-  --table-name $(terraform output -raw dynamodb_lock_table) \
   --profile bootstrap-dev
 ```
 
@@ -732,7 +695,7 @@ Verify the trust policy includes:
 
 ### 5.4: Simulate IAM Policy
 
-Test that GitHub Actions role can access S3 and DynamoDB:
+Test that GitHub Actions role can access S3:
 
 ```bash
 # Simulate S3 access
@@ -770,7 +733,6 @@ aws cloudtrail get-trail \
 **What CloudTrail Logs:**
 - ✅ Every OIDC `AssumeRoleWithWebIdentity` authentication attempt
 - ✅ All S3 operations on the Terraform state bucket (management + data events)
-- ✅ All DynamoDB operations on the state lock table (management + data events)
 - ✅ All Lambda function invocations (data events)
 - ✅ Full audit trail with GitHub workflow details (repository, branch, commit SHA)
 - ✅ CloudTrail Insights for anomaly detection (unusual API call/error rates)
@@ -866,10 +828,7 @@ jobs:
           echo "Testing S3 access..."
           aws s3 ls s3://$(cat bootstrap/terraform.tfvars | grep company_name | cut -d'"' -f2)-tfstate-dev-* || echo "Bucket access test"
       
-      - name: Test DynamoDB access
         run: |
-          echo "Testing DynamoDB access..."
-          aws dynamodb describe-table --table-name terraform-state-locks-dev || echo "Table access test"
       
       - name: Test ABAC isolation (should fail for other projects)
         run: |
@@ -968,12 +927,10 @@ Set additional variables:
 
 ### Issue: "Error acquiring the state lock"
 
-**Cause:** DynamoDB table lock not released properly.
 
 **Solution:**
 ```bash
 # View lock info
-aws dynamodb get-item \
   --table-name terraform-state-locks-dev \
   --key '{"LockID": {"S": "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}/bootstrap/terraform.tfstate"}}' \
   --profile bootstrap-dev
@@ -1055,7 +1012,6 @@ Now that your foundation is set, deploy your applications with ABAC isolation:
        bucket         = "yourcompany-tfstate-dev-123456"
        key            = "marketing-ai/terraform.tfstate"  # MUST match projectID
        region         = "eu-west-1"
-       dynamodb_table = "terraform-state-locks-dev"
        encrypt        = true
      }
    }
@@ -1083,7 +1039,7 @@ Now that your foundation is set, deploy your applications with ABAC isolation:
 - **ECS/Fargate** - Containerized workloads (project-isolated)
 - **Glue jobs** - Data pipelines (project-isolated)
 - **Bedrock** - AI/ML applications (project-isolated)
-- **S3, DynamoDB, etc.** - Any Terraform-managed infrastructure
+- **S3, RDS, etc.** - Any Terraform-managed infrastructure
 
 **ABAC guarantees:** Each project can only access its own state files and resources tagged with its projectID.
 
@@ -1091,7 +1047,6 @@ Now that your foundation is set, deploy your applications with ABAC isolation:
 Replicate this setup to other environments:
 - Follow [Multi-Environment Setup](#multi-environment-setup)
 - Use environment-specific `terraform.tfvars` files
-- Each environment gets its own S3 bucket and DynamoDB table
 
 ### 5. Set Up Branch Protection
 Configure GitHub repository settings:
@@ -1171,7 +1126,6 @@ statement {
 
 - ✅ Never disable state locking
 - ✅ Use `terraform force-unlock` only as last resort
-- ✅ Ensure DynamoDB table has point-in-time recovery enabled
 
 ---
 
@@ -1181,7 +1135,6 @@ You've successfully:
 
 - ✅ Created OIDC provider, IAM role, and deployment policy with Terraform
 - ✅ Implemented ABAC (Attribute-Based Access Control) for project isolation
-- ✅ Bootstrapped S3 backend and DynamoDB locking table with encryption and versioning
 - ✅ Configured immutable CloudTrail audit logging (Object Lock COMPLIANCE mode)
 - ✅ Migrated Terraform state from local to S3
 - ✅ Configured GitHub variables for OIDC authentication

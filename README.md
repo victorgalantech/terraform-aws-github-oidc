@@ -11,7 +11,6 @@ This repository provides everything you need to bootstrap your AWS CI/CD infrast
 - 🏷️ **ABAC isolation** - Project-level access control using session tags
 - 🔒 **Immutable audit trail** - CloudTrail with Object Lock COMPLIANCE mode
 - 🛡️ **Defense-in-depth** - 7 layers of security controls
-- 📦 **Automated state backend** - S3 and DynamoDB with encryption and versioning
 - ✅ **Compliance ready** - SOC 2, ISO 27001, PCI-DSS, GDPR aligned
 
 ---
@@ -35,7 +34,6 @@ Setting up GitHub Actions with AWS traditionally requires:
 - ❌ Creating IAM users with access keys
 - ❌ Storing long-lived credentials in GitHub Secrets
 - ❌ Manual S3 state backend setup
-- ❌ Separate DynamoDB table creation for locking
 - ❌ Manual credential rotation
 - ❌ Security risk if credentials are leaked
 - ❌ No project isolation in multi-project environments
@@ -51,10 +49,8 @@ Setting up GitHub Actions with AWS traditionally requires:
 - ✅ **Environment separation** - Dev/QA/Prod completely isolated
 - ✅ **Bootstrap-only destructive ops** - Only infrastructure project can delete shared resources
 - ✅ **Immutable audit trail** - CloudTrail with Object Lock (90-day tamper-proof logs)
-- ✅ **Transport security** - TLS 1.2+ enforcement on all S3/DynamoDB access
 
 #### **Infrastructure & Automation**
-- ✅ **Automatic state backend** - S3 bucket and DynamoDB table created automatically
 - ✅ **State migration included** - Seamlessly moves from local to S3 backend
 - ✅ **S3 versioning** - State recovery from accidental deletions
 - ✅ **Encryption at rest** - AES-256 encryption for state files and audit logs
@@ -89,7 +85,7 @@ Setting up GitHub Actions with AWS traditionally requires:
 **Summary:**
 1. **Create bootstrap-{env} IAM user** (one-time manual setup per account)
 2. **Configure Terraform variables** (`terraform.tfvars`) - including ABAC settings
-3. **Run Terraform** to create OIDC provider, ABAC policies, CloudTrail, S3 backend, and DynamoDB table
+3. **Run Terraform** to create OIDC provider, ABAC policies, CloudTrail, and S3 backend
 4. **Migrate state** to S3 backend automatically
 5. **Configure GitHub Variables** with role ARN
 6. **Test workflow with ABAC** - done!
@@ -99,7 +95,6 @@ Setting up GitHub Actions with AWS traditionally requires:
 - ✅ OIDC provider with session tagging support
 - ✅ IAM roles with ABAC conditions (projectID + environment isolation)
 - ✅ S3 state bucket (versioned, encrypted, public access blocked, TLS 1.2+ enforced)
-- ✅ DynamoDB lock table (point-in-time recovery)
 - ✅ CloudTrail with Object Lock (immutable 90-day audit logs)
 - ✅ Defense-in-depth security with 7 protection layers
 
@@ -225,7 +220,6 @@ git push origin develop  # Auto-deploys to dev
          ↓                                       │
 ┌────────────────────────────────────────┐      │
 │  AWS Services                          │      │
-│  (S3, DynamoDB, Lambda, etc.)          │      │
 └────────────────────────────────────────┘      │
                                                  │
          ┌───────────────────────────────────────┘
@@ -245,7 +239,6 @@ git push origin develop  # Auto-deploys to dev
 terraform-aws-oidc-bootstrap Repository
         │
         ├─── bootstrap/ (Terraform code)
-        │    ├─── bootstrap.tf (OIDC + IAM + S3 + DynamoDB)
         │    ├─── variables.tf (Configuration)
         │    └─── outputs.tf (Role ARNs, backend config)
         │
@@ -287,7 +280,6 @@ Bootstrap Creates (per environment):
 │  └──────────────────────────────────────────┘   │
 │                                                  │
 │  ┌────────────────────────────────────────┐    │
-│  │ DynamoDB Lock Table (Shared, isolated)  │    │
 │  │ terraform-state-locks-{env}             │    │
 │  │ - Point-in-time recovery enabled        │    │
 │  │ - Pay-per-request billing               │    │
@@ -298,7 +290,6 @@ Bootstrap Creates (per environment):
 │  │ CloudTrail (Immutable)                  │    │
 │  │ - Object Lock COMPLIANCE (90 days)      │    │
 │  │ - All OIDC authentications logged       │    │
-│  │ - Data events (S3, DynamoDB, Lambda)    │    │
 │  │ - CloudTrail Insights (anomalies)       │    │
 │  │ - Log validation (SHA-256)              │    │
 │  └──────────────────────────────────────────┘   │
@@ -324,7 +315,6 @@ GitHub Actions Workflow Uses:
 
 1. **Bootstrap-Only Destructive Ops** - Only infrastructure project can delete shared resources
 2. **S3 Key Prefix Isolation** - Projects can only access `s3://bucket/{projectID}/*`
-3. **DynamoDB LeadingKeys Isolation** - Lock records restricted to `{projectID}/*` pattern
 4. **CloudTrail Immutable Logs** - Object Lock prevents deletion for 90 days
 5. **S3 Versioning** - State recovery from accidental deletions
 6. **Environment Isolation** - Dev/QA/Prod completely separated
@@ -359,7 +349,6 @@ role-session-tags: |
 |--------|---------|--------|
 | **Insider deletes state bucket** | Bootstrap-only DeleteBucket | ❌ Denied |
 | **Cross-project state tampering** | S3 key prefix isolation | ❌ Denied |
-| **Lock record manipulation** | DynamoDB LeadingKeys | ❌ Denied |
 | **Audit log deletion** | Object Lock COMPLIANCE | ❌ Denied |
 | **State file deletion** | S3 versioning | ✅ Recoverable |
 
@@ -384,7 +373,6 @@ This repository provides the **complete foundation** for your AWS CI/CD infrastr
 - ✅ **OIDC Identity Provider** - Secure GitHub Actions authentication with session tagging
 - ✅ **IAM Roles & Policies (ABAC)** - Dynamic permissions with project isolation
 - ✅ **S3 State Backend** - Versioned, encrypted, TLS 1.2+ enforced, project-isolated
-- ✅ **DynamoDB Lock Table** - State locking with point-in-time recovery, project-isolated
 - ✅ **CloudTrail with Object Lock** - Immutable 90-day audit trail
 - ✅ **Automated Migration** - Seamless local-to-S3 state transition
 - ✅ **Defense-in-Depth Security** - 7 layers of protection

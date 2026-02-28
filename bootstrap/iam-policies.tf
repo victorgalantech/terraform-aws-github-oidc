@@ -156,132 +156,6 @@ data "aws_iam_policy_document" "terraform_deployment" {
     ]
   }
 
-  # DynamoDB Lock Table Management - Read-only for all projects
-  statement {
-    sid    = "DynamoDBLockTableReadOnly"
-    effect = "Allow"
-
-    actions = [
-      "dynamodb:DescribeTable",
-      "dynamodb:DescribeContinuousBackups",
-      "dynamodb:ListTables",
-      "dynamodb:ListTagsOfResource"
-    ]
-
-    resources = var.enable_abac ? ["*"] : [
-      "arn:aws:dynamodb:${local.region}:${local.account_id}:table/terraform-state-locks-${var.environment}"
-    ]
-
-    # ABAC: Match environment tag
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "dynamodb:ResourceTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
-      }
-    }
-
-    # ABAC: Ensure resource type is state-backend
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "dynamodb:ResourceTag/resource-type"
-        values   = ["state-backend"]
-      }
-    }
-  }
-
-  # DynamoDB Lock Table Management - Destructive operations ONLY for bootstrap
-  dynamic "statement" {
-    for_each = var.enable_abac ? [1] : []
-    content {
-      sid    = "DynamoDBLockTableManagementBootstrapOnly"
-      effect = "Allow"
-
-      actions = [
-        "dynamodb:CreateTable",
-        "dynamodb:DeleteTable",
-        "dynamodb:UpdateContinuousBackups",
-        "dynamodb:TagResource",
-        "dynamodb:UntagResource",
-        "dynamodb:UpdateTable"
-      ]
-
-      resources = ["*"]
-
-      # SECURITY: Only bootstrap project can create/delete tables
-      condition {
-        test     = "StringEquals"
-        variable = "aws:PrincipalTag/projectID"
-        values   = ["bootstrap"]
-      }
-
-      # ABAC: Match environment tag
-      condition {
-        test     = "StringEquals"
-        variable = "dynamodb:ResourceTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
-      }
-
-      # ABAC: Ensure resource type is state-backend
-      condition {
-        test     = "StringEquals"
-        variable = "dynamodb:ResourceTag/resource-type"
-        values   = ["state-backend"]
-      }
-    }
-  }
-
-  # DynamoDB State Locking - Project-isolated by LockID prefix (CRITICAL SECURITY)
-  statement {
-    sid    = "DynamoDBStateLockingProjectIsolated"
-    effect = "Allow"
-
-    actions = [
-      "dynamodb:PutItem",
-      "dynamodb:GetItem",
-      "dynamodb:DeleteItem",
-      "dynamodb:DescribeTable",
-      "dynamodb:DescribeTimeToLive"
-    ]
-
-    resources = var.enable_abac ? ["*"] : [
-      "arn:aws:dynamodb:${local.region}:${local.account_id}:table/terraform-state-locks-${var.environment}"
-    ]
-
-    # ABAC: Match environment tag
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "dynamodb:ResourceTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
-      }
-    }
-
-    # ABAC: Ensure resource type is state-backend
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "dynamodb:ResourceTag/resource-type"
-        values   = ["state-backend"]
-      }
-    }
-
-    # ABAC: Restrict to projectID lock prefix (CRITICAL SECURITY)
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "ForAllValues:StringLike"
-        variable = "dynamodb:LeadingKeys"
-        values   = ["$${aws:PrincipalTag/projectID}/*"]
-      }
-    }
-  }
- 
   # ABAC: Require tags on resource creation
   dynamic "statement" {
     for_each = var.enable_abac ? [1] : []
@@ -290,8 +164,7 @@ data "aws_iam_policy_document" "terraform_deployment" {
       effect = "Allow"
       
       actions = [
-        "s3:CreateBucket",
-        "dynamodb:CreateTable"
+        "s3:CreateBucket"
       ]
       
       resources = ["*"]
@@ -325,8 +198,7 @@ data "aws_iam_policy_document" "terraform_deployment" {
     effect = "Allow"
     
     actions = [
-      "s3:ListAllMyBuckets",
-      "dynamodb:ListTables"
+      "s3:ListAllMyBuckets"
     ]
     
     resources = ["*"]

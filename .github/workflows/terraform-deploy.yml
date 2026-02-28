@@ -235,7 +235,6 @@ jobs:
           
           # 4. Construimos el nombre completo: prefijo-entorno-accountid
           FULL_BUCKET_NAME="${PREFIX}-tfstate-${ENV}-${ACCOUNT_ID}"
-          DYNAMO_TABLE="terraform-state-locks-${ENV}"
           
           echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
           
@@ -244,7 +243,6 @@ jobs:
           bucket         = "${FULL_BUCKET_NAME}"
           key            = "bootstrap/terraform.tfstate"
           region         = "${{ env.AWS_REGION }}"
-          dynamodb_table = "${DYNAMO_TABLE}"
           encrypt        = true
           EOF
         working-directory: ${{ env.WORKING_DIR }}
@@ -407,7 +405,6 @@ jobs:
           
           # 4. Construimos el nombre completo: prefijo-entorno-accountid
           FULL_BUCKET_NAME="${PREFIX}-tfstate-${ENV}-${ACCOUNT_ID}"
-          DYNAMO_TABLE="terraform-state-locks-${ENV}"
           
           echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
           
@@ -416,7 +413,6 @@ jobs:
           bucket         = "${FULL_BUCKET_NAME}"
           key            = "bootstrap/terraform.tfstate"
           region         = "${{ env.AWS_REGION }}"
-          dynamodb_table = "${DYNAMO_TABLE}"
           encrypt        = true
           EOF
         working-directory: ${{ env.WORKING_DIR }}
@@ -572,7 +568,6 @@ jobs:
           
           # 4. Construimos el nombre completo: company-tfstate-entorno-accountid
           FULL_BUCKET_NAME="${COMPANY}-tfstate-${ENV}-${ACCOUNT_ID}"
-          DYNAMO_TABLE="terraform-state-locks-${ENV}"
           
           echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
           
@@ -581,7 +576,6 @@ jobs:
           bucket         = "${FULL_BUCKET_NAME}"
           key            = "bootstrap/terraform.tfstate"
           region         = "${{ env.AWS_REGION }}"
-          dynamodb_table = "${DYNAMO_TABLE}"
           encrypt        = true
           EOF
         working-directory: ${{ env.WORKING_DIR }}
