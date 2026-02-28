@@ -98,27 +98,5 @@ output "next_steps" {
   - DynamoDB Lock Table: ${aws_dynamodb_table.terraform_locks.id}
   ${var.enable_cloudtrail ? "- CloudTrail: ${aws_cloudtrail.centralized_audit[0].name} (enabled for audit logging)" : "- CloudTrail: disabled"}
   
-  Next Steps:
-  
-  1. Migrate state to S3 backend:
-     
-     terraform init -migrate-state -backend-config="backend-config.hcl"
-  
-  2. Set GitHub Variables (Settings → Secrets and variables → Actions → Variables):
-     
-     Name: AWS_ROLE_ARN_${upper(var.environment)}
-     Value: ${aws_iam_role.github_actions.arn}
-  
-  3. Verify the setup:
-     
-     aws sts get-caller-identity --profile bootstrap-dev
-     aws s3 ls s3://${aws_s3_bucket.terraform_state.id}
-     aws dynamodb describe-table --table-name ${aws_dynamodb_table.terraform_locks.id}
-     ${var.enable_cloudtrail ? "aws cloudtrail get-trail-status --name ${aws_cloudtrail.centralized_audit[0].name}" : ""}
-  
-  4. Test GitHub Actions workflow with OIDC authentication
-  ${var.enable_cloudtrail ? "\n  5. Query CloudTrail logs to monitor OIDC authentications:\n     aws cloudtrail lookup-events --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity" : ""}
-  
-  ========================================
   EOT
 }

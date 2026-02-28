@@ -47,7 +47,7 @@ This **single repository** creates your complete CI/CD foundation:
 3. **IAM Policy** - `TerraformDeploymentPolicy-{environment}` with ABAC conditions (expandable for Lambda, ECS, Glue, Bedrock)
 4. **S3 Bucket** - `{company}-tfstate-{environment}-{account-id}` (versioned, encrypted, lifecycle rules, public access blocked, TLS 1.2+ enforced)
 5. **DynamoDB Table** - `terraform-state-locks-{environment}` (point-in-time recovery, pay-per-request)
-6. **CloudTrail** - `centralized-audit-trail-{environment}` (optional, immutable Object Lock, 90-day retention, multi-region)
+6. **CloudTrail** - `centralized-audit-trail-{environment}` (optional, immutable Object Lock, x-day retention, multi-region)
 7. **Automated State Migration** - Seamless local → S3 transition
 8. **ABAC Security Model** - Attribute-based access control with project and environment isolation
 
@@ -363,8 +363,8 @@ enable_branch_restriction = false
 allowed_branches         = ["main", "develop", "release/*"]
 
 # Optional: CloudTrail for audit logging (recommended for compliance)
-enable_cloudtrail        = true          # Set to false to disable CloudTrail
-cloudtrail_retention_days = 90           # Days to retain CloudTrail logs (immutable)
+#enable_cloudtrail        = false          # Set to false to disable CloudTrail (recommended for Production and deployment via CI/CD)
+#cloudtrail_retention_days = 90           # Days to retain CloudTrail logs (immutable)
 
 # Optional: Custom tags
 tags = {
@@ -447,13 +447,18 @@ terraform plan -out=tfplan
 ```
 
 **What to verify in the plan:**
-- **5-6 resources** to be created:
-  - `aws_iam_openid_connect_provider.github_actions`
-  - `aws_iam_role.github_actions`
-  - `aws_iam_policy.terraform_deployment`
-  - `aws_iam_role_policy_attachment.github_actions_terraform_deployment`
-  - `aws_s3_bucket.terraform_state` (+ related resources)
+- **11 resources** to be created:
+  - `aws_s3_bucket.terraform_state`
+  - `aws_s3_bucket_versioning.terraform_state`
+  - `aws_s3_bucket_server_side_encryption_configuration.terraform_state`
+  - `aws_s3_bucket_public_access_block.terraform_state`
+  - `aws_s3_bucket_policy.terraform_state`
+  - `aws_s3_bucket_lifecycle_configuration.terraform_state`
   - `aws_dynamodb_table.terraform_locks`
+  - `aws_iam_openid_connect_provider.github_actions`
+  - `aws_iam_policy.terraform_deployment`
+  - `aws_iam_role.github_actions`
+  - `aws_iam_role_policy_attachment.github_actions_terraform_deployment`
 
 Review the output carefully:
 - Check role ARNs match your account
@@ -462,11 +467,11 @@ Review the output carefully:
 
 **Example output:**
 ```
-Plan: 10 to add, 0 to change, 0 to destroy.
+Plan: 11 to add, 0 to change, 0 to destroy.
 
 Changes to Outputs:
-  + github_actions_role_arn = "arn:aws:iam::002332700133:role/github-actions-terraform-dev"
-  + terraform_state_bucket  = "yourcompany-tfstate-dev-002332700133"
+  + github_actions_role_arn = "arn:aws:iam::{AWS-ACCOUNT-ID}:role/github-actions-terraform-dev"
+  + terraform_state_bucket  = "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}"
   + dynamodb_lock_table     = "terraform-state-locks-dev"
 ```
 
@@ -496,13 +501,15 @@ aws_iam_openid_connect_provider.github_actions: Creating...
 aws_s3_bucket.terraform_state: Creating...
 aws_dynamodb_table.terraform_locks: Creating...
 ...
-Apply complete! Resources: 10 added, 0 changed, 0 destroyed.
+Apply complete! Resources: 11 added, 0 changed, 0 destroyed.
 
 Outputs:
 
-github_actions_role_arn = "arn:aws:iam::002332700133:role/github-actions-terraform-dev"
-terraform_state_bucket = "yourcompany-tfstate-dev-002332700133"
-dynamodb_lock_table = "terraform-state-locks-dev"
+- OIDC Provider: arn:aws:iam::{AWS-ACCOUNT-ID}:oidc-provider/token.actions.githubusercontent.com
+- IAM Role: github-actions-terraform-dev
+- S3 State Bucket: victorgalantech-tfstate-dev-{AWS-ACCOUNT-ID}
+- DynamoDB Lock Table: terraform-state-locks-dev
+- CloudTrail: disabled
 ...
 ```
 
@@ -572,7 +579,7 @@ cat backend-config.hcl
 
 **Example backend-config.hcl:**
 ```hcl
-bucket         = "yourcompany-tfstate-dev-002332700133"
+bucket         = "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}"
 key            = "bootstrap/terraform.tfstate"
 region         = "eu-west-1"
 dynamodb_table = "terraform-state-locks-dev"
@@ -670,12 +677,22 @@ terraform state list
 
 **Expected output:**
 ```
+data.aws_caller_identity.current
+data.aws_iam_policy_document.github_actions_assume_role
+data.aws_iam_policy_document.terraform_deployment
+data.aws_iam_policy_document.terraform_state_bucket_policy
+data.aws_region.current
 aws_dynamodb_table.terraform_locks
 aws_iam_openid_connect_provider.github_actions
 aws_iam_policy.terraform_deployment
 aws_iam_role.github_actions
 aws_iam_role_policy_attachment.github_actions_terraform_deployment
 aws_s3_bucket.terraform_state
+aws_s3_bucket_lifecycle_configuration.terraform_state
+aws_s3_bucket_policy.terraform_state
+aws_s3_bucket_public_access_block.terraform_state
+aws_s3_bucket_server_side_encryption_configuration.terraform_state
+aws_s3_bucket_versioning.terraform_state
 ...
 ```
 
@@ -728,7 +745,7 @@ aws iam simulate-principal-policy \
 # Should show: EvalDecision: allowed
 ```
 
-### 5.5: Monitor CloudTrail Logs (If Enabled)
+<!-- ### 5.5: Monitor CloudTrail Logs (If Enabled)
 
 If you enabled CloudTrail, you can monitor OIDC authentication attempts:
 
@@ -767,7 +784,7 @@ aws cloudtrail get-trail \
 
 For detailed CloudTrail setup and querying, see [CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md) and [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md).
 
----
+--- -->
 
 ## Step 6: Configure GitHub Variables
 
@@ -777,7 +794,7 @@ For detailed CloudTrail setup and querying, see [CLOUDTRAIL_SETUP.md](CLOUDTRAIL
 terraform output github_actions_role_arn
 ```
 
-Copy the output (e.g., `arn:aws:iam::002332700133:role/github-actions-terraform-dev`)
+Copy the output (e.g., `arn:aws:iam::{AWS-ACCOUNT-ID}:role/github-actions-terraform-dev`)
 
 ### 6.2: Set GitHub Repository Variable
 
@@ -786,7 +803,7 @@ Copy the output (e.g., `arn:aws:iam::002332700133:role/github-actions-terraform-
 3. Click **Variables** tab → **New repository variable**
 4. Set:
    - **Name**: `AWS_ROLE_ARN_DEV`
-   - **Value**: `arn:aws:iam::002332700133:role/github-actions-terraform-dev`
+   - **Value**: `arn:aws:iam::{AWS-ACCOUNT-ID}:role/github-actions-terraform-dev`
 5. Click **Add variable**
 
 ### 6.3: Verify Variable
@@ -799,7 +816,7 @@ Go back to the Variables page and confirm `AWS_ROLE_ARN_DEV` is listed.
 
 ### 7.1: Create Test Workflow
 
-Create `.github/workflows/test-oidc.yml`:
+Create `.github/workflows/test-oidc.yml` and comment the rest of the github workflows:
 
 ```yaml
 name: Test OIDC Setup
@@ -880,8 +897,8 @@ git push origin main
 ```json
 {
     "UserId": "AROAXXXXXXXXXXXXXXXXX:GitHubActions-123456",
-    "Account": "002332700133",
-    "Arn": "arn:aws:sts::002332700133:assumed-role/github-actions-terraform-dev/GitHubActions-123456"
+    "Account": "{AWS-ACCOUNT-ID}",
+    "Arn": "arn:aws:sts::{AWS-ACCOUNT-ID}:assumed-role/github-actions-terraform-dev/GitHubActions-123456"
 }
 ✅ Successfully authenticated with AWS using OIDC!
 ```
@@ -958,7 +975,7 @@ Set additional variables:
 # View lock info
 aws dynamodb get-item \
   --table-name terraform-state-locks-dev \
-  --key '{"LockID": {"S": "yourcompany-tfstate-dev-002332700133/bootstrap/terraform.tfstate"}}' \
+  --key '{"LockID": {"S": "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}/bootstrap/terraform.tfstate"}}' \
   --profile bootstrap-dev
 
 # Force unlock (use with caution)

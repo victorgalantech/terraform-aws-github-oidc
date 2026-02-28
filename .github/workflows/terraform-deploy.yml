@@ -270,7 +270,7 @@ jobs:
           allowed_branches         = ["main", "develop", "release/*", "feature/*"]
           
           enable_cloudtrail        = true
-          cloudtrail_retention_days = 90
+          cloudtrail_retention_days = 1
           
           tags = {
             ManagedBy = "Terraform"
@@ -442,7 +442,7 @@ jobs:
           allowed_branches         = ["main", "develop", "release/*", "feature/*"]
           
           enable_cloudtrail        = true
-          cloudtrail_retention_days = 90
+          cloudtrail_retention_days = 1
           
           tags = {
             ManagedBy = "Terraform"
@@ -599,7 +599,7 @@ jobs:
           allowed_branches         = ["main", "develop", "release/*"]
           
           enable_cloudtrail        = true
-          cloudtrail_retention_days = 90
+          cloudtrail_retention_days = 1
           
           tags = {
             ManagedBy = "Terraform"

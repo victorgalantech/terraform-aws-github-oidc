@@ -9,10 +9,10 @@ company_name = "yourcompany"
 
 # Optional: Enable branch restrictions
 enable_branch_restriction = false
-allowed_branches         = ["main", "develop", "release/*"]
+allowed_branches         = ["main", "develop", "release/*", "feature/*"]
 
 # Optional: CloudTrail for audit logging (recommended for compliance)
-enable_cloudtrail        = true
+enable_cloudtrail        = false
 cloudtrail_retention_days = 90
 
 # Optional: Custom tags
