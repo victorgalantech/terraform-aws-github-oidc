@@ -243,6 +243,7 @@ jobs:
           bucket         = "${FULL_BUCKET_NAME}"
           key            = "bootstrap/terraform.tfstate"
           region         = "${{ env.AWS_REGION }}"
+          use_lockfile   = true
           encrypt        = true
           EOF
         working-directory: ${{ env.WORKING_DIR }}
@@ -413,6 +414,7 @@ jobs:
           bucket         = "${FULL_BUCKET_NAME}"
           key            = "bootstrap/terraform.tfstate"
           region         = "${{ env.AWS_REGION }}"
+          use_lockfile   = true
           encrypt        = true
           EOF
         working-directory: ${{ env.WORKING_DIR }}
