@@ -12,6 +12,9 @@ resource "aws_s3_bucket" "terraform_state" {
       resource-type = "state-backend"
     }
   )
+
+  # Ensure IAM policy is fully applied before attempting bucket operations
+  depends_on = [aws_iam_role_policy_attachment.github_actions_terraform_deployment]
 }
 
 resource "aws_s3_bucket_versioning" "terraform_state" {

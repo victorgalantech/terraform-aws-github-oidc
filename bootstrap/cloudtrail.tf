@@ -17,6 +17,9 @@ resource "aws_s3_bucket" "cloudtrail" {
       resource-type = "audit-logs"
     }
   )
+
+  # Ensure IAM policy is fully applied before attempting bucket operations
+  depends_on = [aws_iam_role_policy_attachment.github_actions_terraform_deployment]
 }
 
 # Object Lock Configuration (Compliance Mode - Immutable)
