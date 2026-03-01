@@ -48,7 +48,7 @@ data "aws_iam_policy_document" "terraform_deployment" {
 
   # S3 Bucket Creation - ONLY for bootstrap
   # Note: s3:CreateBucket does not support aws:RequestTag conditions - tags are applied
-  # via a separate PutBucketTagging call. Security is enforced via projectID=bootstrap only.
+  # via a separate PutBucketTagging call. Security is enforced via Project=bootstrap only.
   dynamic "statement" {
     for_each = var.enable_abac ? [1] : []
     content {
@@ -67,13 +67,6 @@ data "aws_iam_policy_document" "terraform_deployment" {
         test     = "StringEquals"
         variable = "aws:PrincipalTag/Project"
         values   = ["bootstrap"]
-      }
-
-      # ABAC: Restrict to principal's own environment
-      condition {
-        test     = "StringEquals"
-        variable = "aws:PrincipalTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
       }
     }
   }
@@ -184,42 +177,6 @@ data "aws_iam_policy_document" "terraform_deployment" {
     ] : [
       "arn:aws:s3:::${var.company_name}-tfstate-*/*"
     ]
-  }
-
-  # ABAC: Require tags on resource creation
-  dynamic "statement" {
-    for_each = var.enable_abac ? [1] : []
-    content {
-      sid    = "RequireResourceTagsOnCreation"
-      effect = "Allow"
-      
-      actions = [
-        "s3:CreateBucket"
-      ]
-      
-      resources = ["*"]
-      
-      # Require projectID tag matches principal
-      condition {
-        test     = "StringEquals"
-        variable = "aws:RequestTag/Project"
-        values   = ["$${aws:PrincipalTag/Project}"]
-      }
-      
-      # Require environment tag matches principal
-      condition {
-        test     = "StringEquals"
-        variable = "aws:RequestTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
-      }
-      
-      # Require managed-by tag
-      condition {
-        test     = "StringEquals"
-        variable = "aws:RequestTag/managed-by"
-        values   = ["terraform"]
-      }
-    }
   }
 
   # Allow listing operations (no tag restrictions needed)
