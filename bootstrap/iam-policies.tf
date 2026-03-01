@@ -35,13 +35,13 @@ data "aws_iam_policy_document" "terraform_deployment" {
       }
     }
 
-    # ABAC: Ensure resource type is state-backend
+    # ABAC: Ensure resources tagged
     dynamic "condition" {
       for_each = var.enable_abac ? [1] : []
       content {
         test     = "StringEquals"
         variable = "s3:ResourceTag/resource-type"
-        values   = ["state-backend"]
+        values   = ["state-backend", "audit-logs"]
       }
     }
   }
@@ -112,13 +112,13 @@ data "aws_iam_policy_document" "terraform_deployment" {
       }
     }
 
-    # ABAC: Ensure resource type is state-backend
+    # ABAC: Ensure resources tagged
     dynamic "condition" {
       for_each = var.enable_abac ? [1] : []
       content {
         test     = "StringEquals"
         variable = "s3:ResourceTag/resource-type"
-        values   = ["state-backend"]
+        values   = ["state-backend", "audit-logs"]
       }
     }
 
