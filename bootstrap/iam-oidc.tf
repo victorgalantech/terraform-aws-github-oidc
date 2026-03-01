@@ -55,32 +55,32 @@ resource "aws_iam_role" "github_actions" {
   name               = "github-actions-terraform-${var.environment}"
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume_role.json
   description        = "GitHub Actions OIDC role for ${var.environment} environment with ABAC support"
-  
-  # ABAC: Define which tags can be set during assume role
-  dynamic "inline_policy" {
-    for_each = var.enable_abac ? [1] : []
-    content {
-      name = "AllowSessionTagging"
-      policy = jsonencode({
-        Version = "2012-10-17"
-        Statement = [
-          {
-            Sid    = "AllowPassSessionTags"
-            Effect = "Allow"
-            Action = "sts:TagSession"
-            Resource = "*"
-          }
-        ]
-      })
-    }
-  }
- 
+
   tags = merge(
     var.default_resource_tags,
     {
       Name = "github-actions-terraform-${var.environment}"
     }
   )
+}
+
+# ABAC: Allow session tagging when assuming the role
+resource "aws_iam_role_policy" "allow_session_tagging" {
+  count  = var.enable_abac ? 1 : 0
+  name   = "AllowSessionTagging"
+  role   = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "AllowPassSessionTags"
+        Effect   = "Allow"
+        Action   = "sts:TagSession"
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 # ================================================

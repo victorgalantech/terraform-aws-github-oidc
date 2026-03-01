@@ -141,7 +141,8 @@ The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permi
                 "iam:UntagPolicy",
                 "iam:CreatePolicyVersion",
                 "iam:UntagRole",
-                "iam:DeletePolicyVersion"
+                "iam:DeletePolicyVersion",
+                "iam:GetRolePolicy"
             ],
             "Resource": "*"
         },
@@ -424,7 +425,7 @@ terraform plan -out=tfplan
 ```
 
 **What to verify in the plan:**
-- **11 resources** to be created:
+- **10 resources** to be created:
   - `aws_s3_bucket.terraform_state`
   - `aws_s3_bucket_versioning.terraform_state`
   - `aws_s3_bucket_server_side_encryption_configuration.terraform_state`
@@ -443,7 +444,7 @@ Review the output carefully:
 
 **Example output:**
 ```
-Plan: 11 to add, 0 to change, 0 to destroy.
+Plan: 10 to add, 0 to change, 0 to destroy.
 
 Changes to Outputs:
   + github_actions_role_arn = "arn:aws:iam::{AWS-ACCOUNT-ID}:role/github-actions-terraform-dev"
