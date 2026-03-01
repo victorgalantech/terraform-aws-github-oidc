@@ -209,7 +209,7 @@ jobs:
           role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
-            projectID=bootstrap
+            Project=bootstrap
             environment=${{ env.ENV }}
             github-org=${{ github.repository_owner }}
             github-actor=${{ github.actor }}
@@ -276,6 +276,7 @@ jobs:
             Purpose   = "GitHubActionsOIDC"
             Team      = "DevOps"
             Project   = "Bootstrap"
+            environment = "${{ env.ENV }}"
           }
           EOF
         working-directory: ${{ env.WORKING_DIR }}
@@ -447,6 +448,7 @@ jobs:
             Purpose   = "GitHubActionsOIDC"
             Team      = "DevOps"
             Project   = "Bootstrap"
+            environment = "${{ env.ENV }}"
           }
           EOF
         working-directory: ${{ env.WORKING_DIR }}
