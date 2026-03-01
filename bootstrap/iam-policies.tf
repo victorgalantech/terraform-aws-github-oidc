@@ -86,7 +86,8 @@ data "aws_iam_policy_document" "terraform_deployment" {
         "s3:PutBucketPolicy",
         "s3:DeleteBucketPolicy",
         "s3:PutLifecycleConfiguration",
-        "s3:PutBucketAcl"
+        "s3:PutBucketAcl",
+        "s3:PutBucketObjectLockConfiguration"
       ]
 
       resources = ["*"]

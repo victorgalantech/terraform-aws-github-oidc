@@ -1,4 +1,4 @@
-name: 🚀 Terraform Deploy - ABAC Bootstrap
+name: 🚀 Terraform Deploy - ABAC bootstrap
 
 on:
   push:
@@ -275,7 +275,7 @@ jobs:
             ManagedBy = "Terraform"
             Purpose   = "GitHubActionsOIDC"
             Team      = "DevOps"
-            Project   = "Bootstrap"
+            Project   = "bootstrap"
             environment = "${{ env.ENV }}"
           }
           EOF
@@ -381,7 +381,7 @@ jobs:
           role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
-            projectID=bootstrap
+            Project=bootstrap
             environment=${{ env.ENV }}
             github-org=${{ github.repository_owner }}
             github-actor=${{ github.actor }}
@@ -447,7 +447,7 @@ jobs:
             ManagedBy = "Terraform"
             Purpose   = "GitHubActionsOIDC"
             Team      = "DevOps"
-            Project   = "Bootstrap"
+            Project   = "bootstrap"
             environment = "${{ env.ENV }}"
           }
           EOF
@@ -555,7 +555,7 @@ jobs:
           role-session-name: DriftDetection-${{ github.run_id }}-${{ matrix.environment }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
-            projectID=bootstrap
+            Project=bootstrap
             environment=${{ matrix.environment }}
             action=drift-detection
 
