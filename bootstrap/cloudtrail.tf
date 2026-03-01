@@ -14,11 +14,7 @@ resource "aws_s3_bucket" "cloudtrail" {
     var.default_resource_tags,
     {
       Name          = local.cloudtrail_bucket_name
-      projectID     = var.project_id
-      environment   = var.environment
-      managed-by    = "terraform"
       resource-type = "audit-logs"
-      Purpose       = "CentralizedCloudTrailAuditLogs"
     }
   )
 }

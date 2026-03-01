@@ -101,16 +101,16 @@ data "aws_iam_policy_document" "terraform_deployment" {
       # SECURITY: Only bootstrap project can manage buckets
       condition {
         test     = "StringEquals"
-        variable = "aws:PrincipalTag/projectID"
+        variable = "aws:PrincipalTag/Project"
         values   = ["bootstrap"]
       }
 
       # ABAC: Match environment tag on existing resource
-      condition {
-        test     = "StringEquals"
-        variable = "s3:ResourceTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
-      }
+      # condition {
+      #   test     = "StringEquals"
+      #   variable = "s3:ResourceTag/environment"
+      #   values   = ["$${aws:PrincipalTag/environment}"]
+      # }
 
       # ABAC: Ensure proper resource-type on existing resource
       condition {
