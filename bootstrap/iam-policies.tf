@@ -82,11 +82,11 @@ data "aws_iam_policy_document" "terraform_deployment" {
         values   = ["$${aws:PrincipalTag/environment}"]
       }
 
-      # ABAC: Ensure resource type is state-backend
+      # ABAC: Ensure resources tagged
       condition {
         test     = "StringEquals"
         variable = "s3:ResourceTag/resource-type"
-        values   = ["state-backend"]
+        values   = ["state-backend", "audit-logs"]
       }
     }
   }
