@@ -18,6 +18,7 @@ cloudtrail_retention_days = 90
 # Optional: Custom tags
 tags = {
   ManagedBy = "Terraform"
-  Purpose   = "GitHubActionsOIDC"
   Team      = "DevOps"
+  Project   = "bootstrap"
+  environment = "dev"
 }

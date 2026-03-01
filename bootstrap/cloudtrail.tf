@@ -266,11 +266,7 @@ resource "aws_cloudtrail" "centralized_audit" {
     var.default_resource_tags,
     {
       Name          = "centralized-audit-trail-${var.environment}"
-      projectID     = var.project_id
-      environment   = var.environment
-      managed-by    = "terraform"
       resource-type = "audit-trail"
-      Purpose       = "CentralizedSecurityAuditLogging"
     }
   )
 
