@@ -270,6 +270,8 @@ jobs:
           
           enable_cloudtrail        = true
           cloudtrail_retention_days = 1
+
+          enable_abac              = true
           
           tags = {
             ManagedBy = "Terraform"
@@ -442,6 +444,8 @@ jobs:
           
           enable_cloudtrail        = true
           cloudtrail_retention_days = 1
+
+          enable_abac              = true
           
           tags = {
             ManagedBy = "Terraform"
@@ -598,6 +602,8 @@ jobs:
           
           enable_cloudtrail        = true
           cloudtrail_retention_days = 1
+
+          enable_abac              = true
           
           tags = {
             ManagedBy = "Terraform"
