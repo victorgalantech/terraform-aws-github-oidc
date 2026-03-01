@@ -46,43 +46,78 @@ data "aws_iam_policy_document" "terraform_deployment" {
     }
   }
 
-  # S3 State Bucket Management - Destructive operations ONLY for bootstrap
+  # S3 Bucket Creation - ONLY for bootstrap (uses RequestTag for new buckets)
   dynamic "statement" {
     for_each = var.enable_abac ? [1] : []
     content {
-      sid    = "S3StateBucketManagementBootstrapOnly"
+      sid    = "S3BucketCreationBootstrapOnly"
       effect = "Allow"
 
       actions = [
         "s3:CreateBucket",
-        "s3:DeleteBucket",
-        "s3:PutBucketVersioning",
-        "s3:PutBucketEncryption",
-        "s3:PutBucketPublicAccessBlock",
-        "s3:PutBucketPolicy",
-        "s3:DeleteBucketPolicy",
-        "s3:PutBucketTagging",
-        "s3:PutLifecycleConfiguration",
-        "s3:PutBucketAcl"
+        "s3:PutBucketTagging"
       ]
 
       resources = ["*"]
 
-      # SECURITY: Only bootstrap project can create/delete buckets
+      # SECURITY: Only bootstrap project can create buckets
       condition {
         test     = "StringEquals"
         variable = "aws:PrincipalTag/projectID"
         values   = ["bootstrap"]
       }
 
-      # ABAC: Match environment tag
+      # ABAC: Match environment tag in request
+      condition {
+        test     = "StringEquals"
+        variable = "aws:RequestTag/environment"
+        values   = ["$${aws:PrincipalTag/environment}"]
+      }
+
+      # ABAC: Ensure proper resource-type tag in request
+      condition {
+        test     = "StringEquals"
+        variable = "aws:RequestTag/resource-type"
+        values   = ["state-backend", "audit-logs"]
+      }
+    }
+  }
+
+  # S3 Bucket Management - ONLY for bootstrap (uses ResourceTag for existing buckets)
+  dynamic "statement" {
+    for_each = var.enable_abac ? [1] : []
+    content {
+      sid    = "S3BucketManagementBootstrapOnly"
+      effect = "Allow"
+
+      actions = [
+        "s3:DeleteBucket",
+        "s3:PutBucketVersioning",
+        "s3:PutBucketEncryption",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketAcl"
+      ]
+
+      resources = ["*"]
+
+      # SECURITY: Only bootstrap project can manage buckets
+      condition {
+        test     = "StringEquals"
+        variable = "aws:PrincipalTag/projectID"
+        values   = ["bootstrap"]
+      }
+
+      # ABAC: Match environment tag on existing resource
       condition {
         test     = "StringEquals"
         variable = "s3:ResourceTag/environment"
         values   = ["$${aws:PrincipalTag/environment}"]
       }
 
-      # ABAC: Ensure resources tagged
+      # ABAC: Ensure proper resource-type on existing resource
       condition {
         test     = "StringEquals"
         variable = "s3:ResourceTag/resource-type"
