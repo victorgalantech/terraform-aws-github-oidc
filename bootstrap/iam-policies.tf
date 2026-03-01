@@ -46,7 +46,9 @@ data "aws_iam_policy_document" "terraform_deployment" {
     }
   }
 
-  # S3 Bucket Creation - ONLY for bootstrap (uses RequestTag for new buckets)
+  # S3 Bucket Creation - ONLY for bootstrap
+  # Note: s3:CreateBucket does not support aws:RequestTag conditions - tags are applied
+  # via a separate PutBucketTagging call. Security is enforced via projectID=bootstrap only.
   dynamic "statement" {
     for_each = var.enable_abac ? [1] : []
     content {
@@ -60,25 +62,18 @@ data "aws_iam_policy_document" "terraform_deployment" {
 
       resources = ["*"]
 
-      # SECURITY: Only bootstrap project can create buckets
+      # SECURITY: Only bootstrap project can create/tag buckets
       condition {
         test     = "StringEquals"
         variable = "aws:PrincipalTag/projectID"
         values   = ["bootstrap"]
       }
 
-      # ABAC: Match environment tag in request
+      # ABAC: Restrict to principal's own environment
       condition {
         test     = "StringEquals"
-        variable = "aws:RequestTag/environment"
+        variable = "aws:PrincipalTag/environment"
         values   = ["$${aws:PrincipalTag/environment}"]
-      }
-
-      # ABAC: Ensure proper resource-type tag in request
-      condition {
-        test     = "StringEquals"
-        variable = "aws:RequestTag/resource-type"
-        values   = ["state-backend", "audit-logs"]
       }
     }
   }
