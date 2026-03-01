@@ -46,13 +46,15 @@ data "aws_iam_policy_document" "terraform_deployment" {
     }
   }
 
-  # S3 Bucket Creation - ONLY for bootstrap
+  # S3 Bucket Creation - org-wide
   # Note: s3:CreateBucket does not support aws:RequestTag conditions - tags are applied
-  # via a separate PutBucketTagging call. Security is enforced via Project=bootstrap only.
+  # via a separate PutBucketTagging call after creation.
+  # Security is enforced by the OIDC trust policy (only GitHub Actions can assume this role)
+  # and by the environment principal tag (prevents cross-environment bucket creation).
   dynamic "statement" {
     for_each = var.enable_abac ? [1] : []
     content {
-      sid    = "S3BucketCreationBootstrapOnly"
+      sid    = "S3BucketCreation"
       effect = "Allow"
 
       actions = [
@@ -62,20 +64,26 @@ data "aws_iam_policy_document" "terraform_deployment" {
 
       resources = ["*"]
 
-      # SECURITY: Only bootstrap project can create/tag buckets
+      # ABAC: Caller must be operating in the correct environment
       condition {
         test     = "StringEquals"
-        variable = "aws:PrincipalTag/Project"
-        values   = ["bootstrap"]
+        variable = "aws:PrincipalTag/environment"
+        values   = [var.environment]
       }
     }
   }
 
-  # S3 Bucket Management - ONLY for bootstrap (uses ResourceTag for existing buckets)
+  # S3 Bucket Management - org-wide
+  # Resource tag conditions (s3:ResourceTag/*) are intentionally NOT used here.
+  # They cause a chicken-and-egg deadlock: the bucket must be tagged to be managed,
+  # but management is needed before/during tagging (e.g. destroy/recreate cycles).
+  # Security relies on:
+  #   1. OIDC trust policy - only GitHub Actions from allowed repos can assume this role
+  #   2. aws:PrincipalTag/environment - caller's session tag, always present, prevents cross-env ops
   dynamic "statement" {
     for_each = var.enable_abac ? [1] : []
     content {
-      sid    = "S3BucketManagementBootstrapOnly"
+      sid    = "S3BucketManagement"
       effect = "Allow"
 
       actions = [
@@ -92,26 +100,12 @@ data "aws_iam_policy_document" "terraform_deployment" {
 
       resources = ["*"]
 
-      # SECURITY: Only bootstrap project can manage buckets
+      # ABAC: Principal tag (caller's session) - no chicken-and-egg since it's on the caller not the resource
       condition {
         test     = "StringEquals"
-        variable = "aws:PrincipalTag/Project"
-        values   = ["bootstrap"]
+        variable = "aws:PrincipalTag/environment"
+        values   = [var.environment]
       }
-
-      # ABAC: Match environment tag on existing resource
-      condition {
-        test     = "StringEquals"
-        variable = "s3:ResourceTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
-      }
-
-      # # ABAC: Ensure proper resource-type on existing resource
-      # condition {
-      #   test     = "StringEquals"
-      #   variable = "s3:ResourceTag/resource-type"
-      #   values   = ["state-backend", "audit-logs"]
-      # }
     }
   }
 

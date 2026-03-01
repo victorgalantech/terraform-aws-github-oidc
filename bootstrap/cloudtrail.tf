@@ -14,6 +14,7 @@ resource "aws_s3_bucket" "cloudtrail" {
     var.default_resource_tags,
     {
       Name          = local.cloudtrail_bucket_name
+      environment   = var.environment
       resource-type = "audit-logs"
     }
   )

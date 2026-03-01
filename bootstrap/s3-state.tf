@@ -9,6 +9,7 @@ resource "aws_s3_bucket" "terraform_state" {
     var.default_resource_tags,
     {
       Name          = local.tfstate_bucket_name
+      environment   = var.environment
       resource-type = "state-backend"
     }
   )
