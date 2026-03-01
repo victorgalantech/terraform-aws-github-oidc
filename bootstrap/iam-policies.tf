@@ -65,7 +65,7 @@ data "aws_iam_policy_document" "terraform_deployment" {
       # SECURITY: Only bootstrap project can create/tag buckets
       condition {
         test     = "StringEquals"
-        variable = "aws:PrincipalTag/projectID"
+        variable = "aws:PrincipalTag/Project"
         values   = ["bootstrap"]
       }
 
@@ -159,8 +159,8 @@ data "aws_iam_policy_document" "terraform_deployment" {
         test     = "StringLike"
         variable = "s3:prefix"
         values   = [
-          "$${aws:PrincipalTag/projectID}/*",
-          "$${aws:PrincipalTag/projectID}"
+          "$${aws:PrincipalTag/Project}/*",
+          "$${aws:PrincipalTag/Project}"
         ]
       }
     }
@@ -180,7 +180,7 @@ data "aws_iam_policy_document" "terraform_deployment" {
     ]
 
     resources = var.enable_abac ? [
-      "arn:aws:s3:::${var.company_name}-tfstate-${var.environment}-*/$${aws:PrincipalTag/projectID}/*"
+      "arn:aws:s3:::${var.company_name}-tfstate-${var.environment}-*/$${aws:PrincipalTag/Project}/*"
     ] : [
       "arn:aws:s3:::${var.company_name}-tfstate-*/*"
     ]
@@ -202,8 +202,8 @@ data "aws_iam_policy_document" "terraform_deployment" {
       # Require projectID tag matches principal
       condition {
         test     = "StringEquals"
-        variable = "aws:RequestTag/projectID"
-        values   = ["$${aws:PrincipalTag/projectID}"]
+        variable = "aws:RequestTag/Project"
+        values   = ["$${aws:PrincipalTag/Project}"]
       }
       
       # Require environment tag matches principal
