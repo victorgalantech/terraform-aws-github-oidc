@@ -14,9 +14,12 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
     "1c58a3a8518e8759bf075b76b750d4f2df264fcd"
   ]
 
-  tags = {
-    Name = "github-actions-oidc-provider"
-  }
+    tags = merge(
+    var.default_resource_tags,
+    {
+      Name = "github-actions-oidc-provider"
+    }
+  )
 }
 
 # ================================================

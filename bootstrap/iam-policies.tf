@@ -81,7 +81,7 @@ data "aws_iam_policy_document" "terraform_deployment" {
       actions = [
         "s3:DeleteBucket",
         "s3:PutBucketVersioning",
-        "s3:PutBucketEncryption",
+        "s3:PutEncryptionConfiguration",
         "s3:PutBucketPublicAccessBlock",
         "s3:PutBucketPolicy",
         "s3:DeleteBucketPolicy",
