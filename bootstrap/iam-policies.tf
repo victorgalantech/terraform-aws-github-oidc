@@ -106,12 +106,12 @@ data "aws_iam_policy_document" "terraform_deployment" {
         values   = ["$${aws:PrincipalTag/environment}"]
       }
 
-      # ABAC: Ensure proper resource-type on existing resource
-      condition {
-        test     = "StringEquals"
-        variable = "s3:ResourceTag/resource-type"
-        values   = ["state-backend", "audit-logs"]
-      }
+      # # ABAC: Ensure proper resource-type on existing resource
+      # condition {
+      #   test     = "StringEquals"
+      #   variable = "s3:ResourceTag/resource-type"
+      #   values   = ["state-backend", "audit-logs"]
+      # }
     }
   }
 
