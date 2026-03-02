@@ -282,6 +282,26 @@ jobs:
           EOF
         working-directory: ${{ env.WORKING_DIR }}
 
+      - name: Reconcile state bucket into Terraform state
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+          BUCKET_NAME="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
+          echo "Checking state bucket: ${BUCKET_NAME}"
+
+          if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
+            echo "Bucket exists in AWS"
+            if terraform state show aws_s3_bucket.terraform_state 2>/dev/null | grep -q "${BUCKET_NAME}"; then
+              echo "Bucket already tracked in Terraform state - no import needed"
+            else
+              echo "Bucket not tracked in state - importing..."
+              terraform import -var="environment=${{ env.ENV }}" \
+                aws_s3_bucket.terraform_state "${BUCKET_NAME}"
+            fi
+          else
+            echo "Bucket does not exist in AWS - will be created by plan/apply"
+          fi
+        working-directory: ${{ env.WORKING_DIR }}
+
       - name: Terraform Plan
         id: plan
         run: |
@@ -453,6 +473,26 @@ jobs:
             environment = "${{ env.ENV }}"
           }
           EOF
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Reconcile state bucket into Terraform state
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+          BUCKET_NAME="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
+          echo "Checking state bucket: ${BUCKET_NAME}"
+
+          if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
+            echo "Bucket exists in AWS"
+            if terraform state show aws_s3_bucket.terraform_state 2>/dev/null | grep -q "${BUCKET_NAME}"; then
+              echo "Bucket already tracked in Terraform state - no import needed"
+            else
+              echo "Bucket not tracked in state - importing..."
+              terraform import -var="environment=${{ env.ENV }}" \
+                aws_s3_bucket.terraform_state "${BUCKET_NAME}"
+            fi
+          else
+            echo "Bucket does not exist in AWS - will be created by plan/apply"
+          fi
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Plan
