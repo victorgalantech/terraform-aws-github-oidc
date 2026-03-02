@@ -448,7 +448,6 @@ jobs:
           
           tags = {
             ManagedBy = "Terraform"
-            Purpose   = "GitHubActionsOIDC"
             Team      = "DevOps"
             Project   = "bootstrap"
             environment = "${{ env.ENV }}"
@@ -606,8 +605,9 @@ jobs:
           
           tags = {
             ManagedBy = "Terraform"
-            Purpose   = "GitHubActionsOIDC"
             Team      = "DevOps"
+            Project   = "bootstrap"
+            environment = "${{ matrix.environment }}"
           }
           EOF
         working-directory: ${{ env.WORKING_DIR }}
