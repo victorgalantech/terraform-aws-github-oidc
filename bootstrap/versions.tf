@@ -16,7 +16,7 @@ provider "aws" {
     tags = merge(
       var.tags,
       {
-        Environment = var.environment
+        environment = var.environment
       }
     )
   }

@@ -344,6 +344,8 @@ allowed_branches         = ["main", "develop", "release/*"]
 #enable_cloudtrail        = false          # Set to false to disable CloudTrail (recommended for Production and deployment via CI/CD)
 #cloudtrail_retention_days = 90           # Days to retain CloudTrail logs (immutable)
 
+#enable_abac              = true
+
 # Optional: Custom tags
 tags = {
   ManagedBy = "Terraform"

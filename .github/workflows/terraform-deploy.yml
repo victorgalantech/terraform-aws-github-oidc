@@ -1,12 +1,18 @@
-name: 🚀 Terraform Deploy - ABAC bootstrap
+name: Terraform Deploy - ABAC Bootstrap
 
 on:
   push:
-    branches: [main, develop, "feature/*"]
-    paths: ['bootstrap/**', '.github/workflows/terraform-deploy.yml']
+    branches: [main, develop, "feature/*", "release/*"]
+    paths:
+      - 'bootstrap/**'
+      - '.github/workflows/terraform-deploy.yml'
   pull_request:
     branches: [main, develop]
-    paths: ['bootstrap/**', '.github/workflows/terraform-deploy.yml']
+    paths:
+      - 'bootstrap/**'
+      - '.github/workflows/terraform-deploy.yml'
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday 06:00 UTC - weekly drift detection
   workflow_dispatch:
     inputs:
       environment:
@@ -15,19 +21,16 @@ on:
         type: choice
         options: [dev, qa, prod]
       action:
-        description: 'Terraform action'
+        description: 'Action to perform'
         required: true
         type: choice
-        options:
-          - plan
-          - apply
-          - destroy
+        options: [plan, apply]
 
-# Required permissions for OIDC
 permissions:
-  id-token: write   # OIDC authentication
-  contents: read    # Checkout code
-  pull-requests: write  # Comment on PRs
+  id-token: write
+  contents: read
+  pull-requests: write
+  issues: write
 
 env:
   TF_VERSION: '1.10.0'
@@ -35,47 +38,40 @@ env:
   WORKING_DIR: './bootstrap'
 
 jobs:
-  # ================================================
+  # ============================================================
   # Job 1: Detect Environment
-  # ================================================
+  # ============================================================
   detect-environment:
-      name: 🔍 Detect Environment
-      runs-on: ubuntu-latest
-      outputs:
-        environment: ${{ steps.detect.outputs.environment }}
-        env_upper: ${{ steps.detect.outputs.env_upper }}
-        should_deploy: ${{ steps.detect.outputs.should_deploy }}
-      steps:
-        - id: detect
-          run: |
-            if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-              ENV="${{ github.event.inputs.environment }}"
-              DEPLOY="true"
-            elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-              ENV="prod"
-              DEPLOY="true"
-            else
-              ENV="dev"
-              DEPLOY="false"
-            fi
-            
-            echo "environment=${ENV}" >> $GITHUB_OUTPUT
-            echo "env_upper=$(echo ${ENV} | tr '[:lower:]' '[:upper:]')" >> $GITHUB_OUTPUT
-            echo "should_deploy=${DEPLOY}" >> $GITHUB_OUTPUT
-          
-  # ================================================
-  # Job 2: Terraform Validate & Lint
-  # ================================================
+    name: Detect Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.detect.outputs.environment }}
+      env_upper:   ${{ steps.detect.outputs.env_upper }}
+    steps:
+      - id: detect
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            ENV="prod"
+          else
+            ENV="dev"
+          fi
+          echo "environment=${ENV}" >> $GITHUB_OUTPUT
+          echo "env_upper=$(echo ${ENV} | tr '[:lower:]' '[:upper:]')" >> $GITHUB_OUTPUT
+
+  # ============================================================
+  # Job 2: Validate & Lint
+  # ============================================================
   validate:
-    name: ✅ Validate & Lint
+    name: Validate & Lint
     runs-on: ubuntu-latest
     needs: detect-environment
+    if: github.event_name != 'schedule'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
@@ -85,7 +81,7 @@ jobs:
         working-directory: ${{ env.WORKING_DIR }}
         continue-on-error: true
 
-      - name: Terraform Init (validation only)
+      - name: Terraform Init (no backend)
         run: terraform init -backend=false
         working-directory: ${{ env.WORKING_DIR }}
 
@@ -112,37 +108,27 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const output = `#### 🎨 Terraform Format: \`${{ steps.fmt.outcome }}\`
-            #### ✅ Terraform Validation: \`${{ steps.validate.outcome }}\`
-            #### 🔍 TFLint: \`${{ steps.tflint.outcome }}\`
-            
-            <details><summary>Show Validation Output</summary>
-            
-            \`\`\`
-            ${{ steps.validate.outputs.stdout }}
-            \`\`\`
-            
-            </details>
-            
-            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body: `#### 🎨 Terraform Format: \`${{ steps.fmt.outcome }}\`
+            #### ✅ Terraform Validation: \`${{ steps.validate.outcome }}\`
+            #### 🔍 TFLint: \`${{ steps.tflint.outcome }}\`
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`
             })
 
-  # ================================================
-  # Job 3: Security Scanning
-  # ================================================
+  # ============================================================
+  # Job 3: Security Scan
+  # ============================================================
   security-scan:
-    name: 🔒 Security Scan
+    name: Security Scan
     runs-on: ubuntu-latest
     needs: validate
+    if: github.event_name != 'schedule'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Run Checkov
         id: checkov
@@ -161,52 +147,47 @@ jobs:
           working_directory: ${{ env.WORKING_DIR }}
           soft_fail: true
 
-      - name: Comment PR - Security Scan Results
+      - name: Comment PR - Security Results
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const output = `#### 🔒 Security Scan Results
-            
-            - **Checkov**: \`${{ steps.checkov.outcome }}\`
-            - **tfsec**: \`${{ steps.tfsec.outcome }}\`
-            
-            ✅ Security scanning complete. Review any findings above.
-            
-            *Environment: \`${{ needs.detect-environment.outputs.environment }}\`*`;
-            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body: `#### 🔒 Security Scan Results
+
+            - **Checkov**: \`${{ steps.checkov.outcome }}\`
+            - **tfsec**: \`${{ steps.tfsec.outcome }}\`
+
+            *Environment: \`${{ needs.detect-environment.outputs.environment }}\`*`
             })
 
-  # ================================================
+  # ============================================================
   # Job 4: Terraform Plan
-  # ================================================
+  # ============================================================
   plan:
-    name: 📋 Terraform Plan
+    name: Terraform Plan
     runs-on: ubuntu-latest
     needs: [detect-environment, validate, security-scan]
+    if: github.event_name != 'schedule'
     env:
       ENV: ${{ needs.detect-environment.outputs.environment }}
     outputs:
       exitcode: ${{ steps.plan.outputs.exitcode }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      
-      - name: Configure AWS credentials (OIDC)
+
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', needs.detect-environment.outputs.env_upper)] }}
-          role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
+          role-session-name: TerraformPlan-${{ github.run_id }}-${{ env.ENV }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
             Project=bootstrap
@@ -214,91 +195,61 @@ jobs:
             github-org=${{ github.repository_owner }}
             github-actor=${{ github.actor }}
             managed-by=github-actions
-            action=terraform-apply
+            action=terraform-plan
 
-      - name: Verify AWS Identity
+      - name: Generate backend config
         run: |
-          echo "🔐 Verifying OIDC authentication..."
-          aws sts get-caller-identity
-          echo "✅ Successfully authenticated with ABAC session tags"
-
-      - name: Generate Backend Config
-        run: |
-          # 1. Definimos el prefijo desde GitHub Vars
-          PREFIX="${{ vars.COMPANY_NAME }}"
-          
-          # 2. Obtenemos el Account ID directamente de AWS (ya que el step anterior nos autenticó)
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-          
-          # 3. Definimos el entorno (dev, qa, prod)
-          ENV="${{ needs.detect-environment.outputs.environment }}"
-          
-          # 4. Construimos el nombre completo: prefijo-entorno-accountid
-          FULL_BUCKET_NAME="${PREFIX}-tfstate-${ENV}-${ACCOUNT_ID}"
-          
-          echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
-          
-          # 5. Generamos el archivo
+          BUCKET="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
+          echo "Using bucket: ${BUCKET}"
           cat > backend-config.hcl <<EOF
-          bucket         = "${FULL_BUCKET_NAME}"
-          key            = "bootstrap/terraform.tfstate"
-          region         = "${{ env.AWS_REGION }}"
-          use_lockfile   = true
-          encrypt        = true
+          bucket       = "${BUCKET}"
+          key          = "bootstrap/terraform.tfstate"
+          region       = "${{ env.AWS_REGION }}"
+          use_lockfile = true
+          encrypt      = true
           EOF
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Init
-        run: |
-          terraform init \
-              -backend-config=backend-config.hcl \
-              -input=false \
-              -reconfigure
+        run: terraform init -backend-config=backend-config.hcl -input=false -reconfigure
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Generate terraform.tfvars
         run: |
           cat > terraform.tfvars <<EOF
-          aws_region   = "${{ env.AWS_REGION }}"
-          environment  = "${{ env.ENV }}"
-          github_org   = "${{ vars.COMPANY_NAME }}"
-          github_repo  = "*"
-          company_name = "${{ vars.COMPANY_NAME }}"
-          
+          aws_region                = "${{ env.AWS_REGION }}"
+          environment               = "${{ env.ENV }}"
+          company_name              = "${{ vars.COMPANY_NAME }}"
+          github_org                = "${{ vars.COMPANY_NAME }}"
+          github_repo               = "*"
           enable_branch_restriction = true
-          allowed_branches         = ["main", "develop", "release/*", "feature/*"]
-          
-          enable_cloudtrail        = true
+          allowed_branches          = ["main", "develop", "release/*", "feature/*"]
+          enable_cloudtrail         = false
           cloudtrail_retention_days = 1
-
-          enable_abac              = true
-          
+          enable_abac               = true
           tags = {
-            ManagedBy = "Terraform"
-            Team      = "DevOps"
-            Project   = "bootstrap"
+            ManagedBy   = "Terraform"
+            Team        = "DevOps"
+            Project     = "bootstrap"
             environment = "${{ env.ENV }}"
           }
           EOF
         working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Reconcile state bucket into Terraform state
+      - name: Reconcile state bucket
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-          BUCKET_NAME="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
-          echo "Checking state bucket: ${BUCKET_NAME}"
-
-          if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
-            echo "Bucket exists in AWS"
-            if terraform state show aws_s3_bucket.terraform_state 2>/dev/null | grep -q "${BUCKET_NAME}"; then
-              echo "Bucket already tracked in Terraform state - no import needed"
+          BUCKET="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
+          if aws s3api head-bucket --bucket "${BUCKET}" 2>/dev/null; then
+            if terraform state show aws_s3_bucket.terraform_state 2>/dev/null | grep -q "${BUCKET}"; then
+              echo "State bucket already tracked - skipping import"
             else
-              echo "Bucket not tracked in state - importing..."
-              terraform import -var="environment=${{ env.ENV }}" \
-                aws_s3_bucket.terraform_state "${BUCKET_NAME}"
+              echo "Importing state bucket..."
+              terraform import aws_s3_bucket.terraform_state "${BUCKET}"
             fi
           else
-            echo "Bucket does not exist in AWS - will be created by plan/apply"
+            echo "Bucket not found in AWS - will be created by plan/apply"
           fi
         working-directory: ${{ env.WORKING_DIR }}
 
@@ -306,7 +257,6 @@ jobs:
         id: plan
         run: |
           terraform plan \
-            -var="environment=${{ env.ENV }}" \
             -out=tfplan-${{ env.ENV }}.binary \
             -detailed-exitcode \
             -no-color
@@ -331,75 +281,50 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const plan = fs.readFileSync('${{ env.WORKING_DIR }}/tfplan-${{ env.ENV }}.json', 'utf8');
-            const planJson = JSON.parse(plan);
-            
-            const resourceChanges = planJson.resource_changes || [];
-            const toCreate = resourceChanges.filter(r => r.change.actions.includes('create')).length;
-            const toUpdate = resourceChanges.filter(r => r.change.actions.includes('update')).length;
-            const toDelete = resourceChanges.filter(r => r.change.actions.includes('delete')).length;
-            
-            const output = `#### 📋 Terraform Plan - ${{ env.ENV }}
-            
-            **Changes Summary:**
-            - ➕ Create: ${toCreate}
-            - 🔄 Update: ${toUpdate}
-            - ➖ Delete: ${toDelete}
-            
-            **Exit Code**: \`${{ steps.plan.outputs.exitcode }}\`
-            
-            <details><summary>Show Full Plan</summary>
-            
-            \`\`\`terraform
-            Resources to create: ${toCreate}
-            Resources to update: ${toUpdate}
-            Resources to delete: ${toDelete}
-            \`\`\`
-            
-            </details>
-            
-            **⚠️ Review the plan carefully before approving deployment.**
-            
-            *Environment: \`${{ env.ENV }}\` | Run ID: \`${{ github.run_id }}\`*`;
-            
+            const plan = JSON.parse(fs.readFileSync('${{ env.WORKING_DIR }}/tfplan-${{ env.ENV }}.json', 'utf8'));
+            const changes = plan.resource_changes || [];
+            const toCreate = changes.filter(r => r.change.actions.includes('create')).length;
+            const toUpdate = changes.filter(r => r.change.actions.includes('update')).length;
+            const toDelete = changes.filter(r => r.change.actions.includes('delete')).length;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body: `#### 📋 Terraform Plan - ${{ env.ENV }}
+
+            **Changes:** ➕ ${toCreate} &nbsp; 🔄 ${toUpdate} &nbsp; ➖ ${toDelete}
+
+            ⚠️ Review carefully before approving deployment.
+
+            *Run: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*`
             })
 
-      - name: Plan Status
+      - name: Fail on plan error
         if: steps.plan.outputs.exitcode == '1'
-        run: |
-          echo "❌ Terraform plan failed"
-          exit 1
+        run: exit 1
 
-# ================================================
-  # Job 5: Terraform Apply (Requires Approval for Prod)
-  # ================================================
+  # ============================================================
+  # Job 5: Terraform Apply
+  # ============================================================
   apply:
-    name: 🚀 Terraform Apply
+    name: Terraform Apply
     runs-on: ubuntu-latest
     needs: [detect-environment, plan]
-    
+    if: needs.plan.outputs.exitcode == '2' && (github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'))
     env:
       ENV: ${{ needs.detect-environment.outputs.environment }}
-      
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-      
-      - name: Configure AWS credentials (OIDC)
+
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', needs.detect-environment.outputs.env_upper)] }}
-          role-session-name: GitHubActions-${{ github.run_id }}-${{ needs.detect-environment.outputs.environment }}
+          role-session-name: TerraformApply-${{ github.run_id }}-${{ env.ENV }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-tags: |
             Project=bootstrap
@@ -409,117 +334,41 @@ jobs:
             managed-by=github-actions
             action=terraform-apply
 
-      - name: Verify AWS Identity
+      - name: Generate backend config
         run: |
-          echo "🔐 Verifying OIDC authentication..."
-          aws sts get-caller-identity
-          echo "✅ Successfully authenticated with ABAC session tags"
-
-      - name: Generate Backend Config
-        run: |
-          # 1. Definimos el prefijo desde GitHub Vars
-          PREFIX="${{ vars.COMPANY_NAME }}"
-          
-          # 2. Obtenemos el Account ID directamente de AWS (ya que el step anterior nos autenticó)
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-          
-          # 3. Definimos el entorno (dev, qa, prod)
-          ENV="${{ needs.detect-environment.outputs.environment }}"
-          
-          # 4. Construimos el nombre completo: prefijo-entorno-accountid
-          FULL_BUCKET_NAME="${PREFIX}-tfstate-${ENV}-${ACCOUNT_ID}"
-          
-          echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
-          
-          # 5. Generamos el archivo
+          BUCKET="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
+          echo "Using bucket: ${BUCKET}"
           cat > backend-config.hcl <<EOF
-          bucket         = "${FULL_BUCKET_NAME}"
-          key            = "bootstrap/terraform.tfstate"
-          region         = "${{ env.AWS_REGION }}"
-          use_lockfile   = true
-          encrypt        = true
+          bucket       = "${BUCKET}"
+          key          = "bootstrap/terraform.tfstate"
+          region       = "${{ env.AWS_REGION }}"
+          use_lockfile = true
+          encrypt      = true
           EOF
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Init
-        run: |
-          terraform init \
-              -backend-config=backend-config.hcl \
-              -input=false \
-              -reconfigure
+        run: terraform init -backend-config=backend-config.hcl -input=false -reconfigure
         working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Generate terraform.tfvars
-        run: |
-          cat > terraform.tfvars <<EOF
-          aws_region   = "${{ env.AWS_REGION }}"
-          environment  = "${{ env.ENV }}"
-          github_org   = "${{ vars.COMPANY_NAME }}"
-          github_repo  = "*"
-          company_name = "${{ vars.COMPANY_NAME }}"
-          
-          enable_branch_restriction = true
-          allowed_branches         = ["main", "develop", "release/*", "feature/*"]
-          
-          enable_cloudtrail        = true
-          cloudtrail_retention_days = 1
-
-          enable_abac              = true
-          
-          tags = {
-            ManagedBy = "Terraform"
-            Team      = "DevOps"
-            Project   = "bootstrap"
-            environment = "${{ env.ENV }}"
-          }
-          EOF
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Reconcile state bucket into Terraform state
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-          BUCKET_NAME="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
-          echo "Checking state bucket: ${BUCKET_NAME}"
-
-          if aws s3api head-bucket --bucket "${BUCKET_NAME}" 2>/dev/null; then
-            echo "Bucket exists in AWS"
-            if terraform state show aws_s3_bucket.terraform_state 2>/dev/null | grep -q "${BUCKET_NAME}"; then
-              echo "Bucket already tracked in Terraform state - no import needed"
-            else
-              echo "Bucket not tracked in state - importing..."
-              terraform import -var="environment=${{ env.ENV }}" \
-                aws_s3_bucket.terraform_state "${BUCKET_NAME}"
-            fi
-          else
-            echo "Bucket does not exist in AWS - will be created by plan/apply"
-          fi
-        working-directory: ${{ env.WORKING_DIR }}
-
-      - name: Terraform Plan
-        id: plan
-        run: |
-          terraform plan \
-            -var="environment=${{ env.ENV }}" \
-            -out=tfplan-${{ env.ENV }}.binary \
-            -detailed-exitcode \
-            -no-color
-        working-directory: ${{ env.WORKING_DIR }} 
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ env.ENV }}
+          path: ${{ env.WORKING_DIR }}
 
       - name: Terraform Apply
         id: apply
         run: terraform apply -auto-approve tfplan-${{ env.ENV }}.binary
         working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Output deployment summary
+      - name: Upload outputs
         if: success()
-        run: |
-          echo " Deployment successful!"
-          echo "Environment: ${{ env.ENV }}"
-          echo "Run ID: ${{ github.run_id }}"
-          terraform output -json > outputs.json
+        run: terraform output -json > outputs.json
         working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Upload outputs
+      - name: Upload outputs artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -527,70 +376,52 @@ jobs:
           path: ${{ env.WORKING_DIR }}/outputs.json
           retention-days: 30
 
-      - name: Verify CloudTrail logging
-        if: success()
-        run: |
-          echo "🔍 Verifying CloudTrail is logging OIDC events..."
-          aws cloudtrail lookup-events \
-            --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
-            --max-results 5 \
-            --query 'Events[*].[EventTime,Username,CloudTrailEvent]' \
-            --output table || echo "⚠️ No recent OIDC events found (this is normal for first deployment)"
+      # - name: Verify CloudTrail logging
+      #   if: success()
+      #   run: |
+      #     aws cloudtrail lookup-events \
+      #       --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+      #       --max-results 5 \
+      #       --query 'Events[*].[EventTime,Username,CloudTrailEvent]' \
+      #       --output table || echo "No recent OIDC events found (normal for first deployment)"
 
       - name: Comment PR - Deployment Success
         if: success() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const output = `#### ✅ Deployment Successful - ${{ env.ENV }}
-            
-            **Environment**: \`${{ env.ENV }}\`
-            **Run ID**: \`${{ github.run_id }}\`
-            **Actor**: @${{ github.actor }}
-            
-            🎉 Infrastructure deployed successfully with ABAC security!
-            
-            **Next Steps:**
-            1. Verify resources in AWS Console
-            2. Check CloudTrail for audit logs
-            3. Test ABAC isolation between projects
-            
-            [View CloudTrail Events](https://console.aws.amazon.com/cloudtrail/)`;
-            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
+              body: `#### ✅ Deployment Successful - ${{ env.ENV }}
+
+            **Run ID:** \`${{ github.run_id }}\` &nbsp; **Actor:** @${{ github.actor }}`
             })
 
-  # ================================================
-  # Job 6: Drift Detection (Scheduled)
-  # ================================================
+  # ============================================================
+  # Job 6: Drift Detection (runs every Monday 06:00 UTC)
+  # ============================================================
   drift-detection:
-    name: 🔍 Drift Detection
+    name: Drift Detection (${{ matrix.environment }})
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule'
     strategy:
       fail-fast: false
       matrix:
         environment: [dev, qa, prod]
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Prepare environment variables
+      - name: Prepare env
         id: prep
-        run: |
-          echo "ENV_UPPER=$(echo ${{ matrix.environment }} | tr '[:lower:]' '[:upper:]')" >> $GITHUB_OUTPUT
+        run: echo "ENV_UPPER=$(echo ${{ matrix.environment }} | tr '[:lower:]' '[:upper:]')" >> $GITHUB_OUTPUT
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars[format('AWS_ROLE_ARN_{0}', steps.prep.outputs.ENV_UPPER)] }}
@@ -599,69 +430,53 @@ jobs:
           role-session-tags: |
             Project=bootstrap
             environment=${{ matrix.environment }}
+            managed-by=github-actions
             action=drift-detection
 
-      - name: Generate Backend Config
+      - name: Generate backend config
         run: |
-          # 1. Definimos el company name desde GitHub Vars
-          COMPANY="${{ vars.COMPANY_NAME }}"
-          
-          # 2. Obtenemos el Account ID directamente de AWS (ya que el step anterior nos autenticó)
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-          
-          # 3. Definimos el entorno (dev, qa, prod)
-          ENV="${{ matrix.environment }}"
-          
-          # 4. Construimos el nombre completo: company-tfstate-entorno-accountid
-          FULL_BUCKET_NAME="${COMPANY}-tfstate-${ENV}-${ACCOUNT_ID}"
-          
-          echo "📂 Usando Bucket: ${FULL_BUCKET_NAME}"
-          
-          # 5. Generamos el archivo
+          BUCKET="${{ vars.COMPANY_NAME }}-tfstate-${{ matrix.environment }}-${ACCOUNT_ID}"
+          echo "Using bucket: ${BUCKET}"
           cat > backend-config.hcl <<EOF
-          bucket         = "${FULL_BUCKET_NAME}"
-          key            = "bootstrap/terraform.tfstate"
-          region         = "${{ env.AWS_REGION }}"
-          encrypt        = true
+          bucket       = "${BUCKET}"
+          key          = "bootstrap/terraform.tfstate"
+          region       = "${{ env.AWS_REGION }}"
+          use_lockfile = true
+          encrypt      = true
           EOF
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Generate terraform.tfvars
         run: |
           cat > terraform.tfvars <<EOF
-          aws_region   = "${{ env.AWS_REGION }}"
-          environment  = "${{ matrix.environment }}"
-          github_org   = "${{ vars.COMPANY_NAME }}"
-          github_repo  = "${{ vars.GITHUB_REPO }}"
-          company_name = "${{ vars.COMPANY_NAME }}"
-          
-          enable_branch_restriction = false
-          allowed_branches         = ["main", "develop", "release/*"]
-          
-          enable_cloudtrail        = true
+          aws_region                = "${{ env.AWS_REGION }}"
+          environment               = "${{ matrix.environment }}"
+          company_name              = "${{ vars.COMPANY_NAME }}"
+          github_org                = "${{ vars.COMPANY_NAME }}"
+          github_repo               = "*"
+          enable_branch_restriction = true
+          allowed_branches          = ["main", "develop", "release/*", "feature/*"]
+          enable_cloudtrail         = false
           cloudtrail_retention_days = 1
-
-          enable_abac              = true
-          
+          enable_abac               = true
           tags = {
-            ManagedBy = "Terraform"
-            Team      = "DevOps"
-            Project   = "bootstrap"
+            ManagedBy   = "Terraform"
+            Team        = "DevOps"
+            Project     = "bootstrap"
             environment = "${{ matrix.environment }}"
           }
           EOF
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Terraform Init
-        run: terraform init -backend-config=backend-config.hcl
+        run: terraform init -backend-config=backend-config.hcl -input=false -reconfigure
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Detect Drift
         id: drift
         run: |
-          # El exit code 2 indica que hay cambios (drift)
           terraform plan \
-            -var="environment=${{ matrix.environment }}" \
             -detailed-exitcode \
             -no-color
         working-directory: ${{ env.WORKING_DIR }}
@@ -676,14 +491,13 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `⚠️ Infrastructure Drift Detected - ${{ matrix.environment }}`,
-              body: `Se ha detectado una desviación (drift) en el entorno **${{ matrix.environment }}**.
-              
-              El estado real en AWS no coincide con la configuración de Terraform.
-              
-              **Detalles de la ejecución:**
-              - Run ID: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-              - Fecha: ${new Date().toUTCString()}
-              
-              Por favor, revisa el plan y aplica los cambios necesarios para reconciliar la infraestructura.`,
+              body: `Drift detected in **${{ matrix.environment }}** environment.
+
+            The real AWS state no longer matches the Terraform configuration.
+
+            **Run:** [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            **Date:** ${new Date().toUTCString()}
+
+            Please review and apply changes to reconcile infrastructure.`,
               labels: ['drift', 'infrastructure', '${{ matrix.environment }}']
             })
