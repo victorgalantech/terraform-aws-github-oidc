@@ -241,12 +241,12 @@ jobs:
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
           BUCKET="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
-          if aws s3api head-bucket --bucket "${BUCKET}" 2>/dev/null; then
-            echo "Bucket exists in AWS - forcing re-import to prevent stale refresh..."
-            terraform state rm aws_s3_bucket.terraform_state 2>/dev/null || true
-            terraform import aws_s3_bucket.terraform_state "${BUCKET}"
+          echo "Reconciling state bucket: ${BUCKET}"
+          terraform state rm aws_s3_bucket.terraform_state 2>/dev/null || true
+          if terraform import aws_s3_bucket.terraform_state "${BUCKET}"; then
+            echo "State bucket successfully imported"
           else
-            echo "Bucket not found in AWS - will be created by plan/apply"
+            echo "Bucket does not exist yet - will be created by plan/apply"
           fi
         working-directory: ${{ env.WORKING_DIR }}
 
@@ -377,7 +377,7 @@ jobs:
       #   if: success()
       #   run: |
       #     aws cloudtrail lookup-events \
-      #       --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+      #       --lookup- attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
       #       --max-results 5 \
       #       --query 'Events[*].[EventTime,Username,CloudTrailEvent]' \
       #       --output table || echo "No recent OIDC events found (normal for first deployment)"
