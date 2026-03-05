@@ -61,33 +61,3 @@ variable "tags" {
     Purpose   = "GitHubActionsOIDC"
   }
 }
-
-variable "enable_abac" {
-  description = "Enable Attribute-Based Access Control using session tags"
-  type        = bool
-  default     = false
-}
-
-variable "abac_principal_tags" {
-  description = "Map OIDC claims to principal tags for ABAC"
-  type        = map(string)
-  default = {
-    "github-org"         = "token.actions.githubusercontent.com:repository_owner"
-    "github-repo"        = "token.actions.githubusercontent.com:repository"
-    "github-environment" = "token.actions.githubusercontent.com:environment"
-    "github-actor"       = "token.actions.githubusercontent.com:actor"
-    "github-ref"         = "token.actions.githubusercontent.com:ref"
-  }
-}
-
-variable "project_id" {
-  description = "Project identifier for ABAC tagging (e.g., bootstrap, dataplatform, mlops)"
-  type        = string
-  default     = "bootstrap"
-}
-
-variable "default_resource_tags" {
-  description = "Default tags to apply to resources for ABAC matching"
-  type        = map(string)
-  default     = {}
-}

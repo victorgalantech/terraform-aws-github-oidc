@@ -44,11 +44,11 @@ This **single repository** creates your complete CI/CD foundation:
 
 1. **AWS OIDC Identity Provider** - `token.actions.githubusercontent.com`
 2. **IAM Role** - `github-actions-terraform-{environment}` with ABAC session tagging
-3. **IAM Policy** - `TerraformDeploymentPolicy-{environment}` with ABAC conditions (expandable for Lambda, ECS, Glue, Bedrock)
+3. **IAM Policy** - `TerraformDeploymentPolicy-{environment}` with ARN-based scoping and environment isolation
 4. **S3 Bucket** - `{company}-tfstate-{environment}-{account-id}` (versioned, encrypted, lifecycle rules, public access blocked, TLS 1.2+ enforced)
-6. **CloudTrail** - `centralized-audit-trail-{environment}` (optional, immutable Object Lock, x-day retention, multi-region)
+5. **CloudTrail** - `centralized-audit-trail-{environment}` (optional, immutable Object Lock, x-day retention, multi-region)
 6. **Automated State Migration** - Seamless local → S3 transition
-7. **ABAC Security Model** - Attribute-based access control with project and environment isolation
+7. **Security Model** - OIDC trust policy + ARN-based resource restrictions + `aws:PrincipalTag/environment` cross-environment isolation
 
 ---
 
@@ -332,43 +332,30 @@ github_org   = "your-github-org"        # Replace with your GitHub organization
 github_repo  = "*"                       # "*" for all repos, or specific repo name
 company_name = "yourcompany"             # Replace with your company prefix
 
-# ABAC Configuration (Recommended)
-enable_abac  = true                      # Enable Attribute-Based Access Control
-project_id   = "bootstrap"               # Project identifier (bootstrap for Project 0)
-
 # Optional: Enable branch restrictions
 enable_branch_restriction = false
 allowed_branches         = ["main", "develop", "release/*"]
 
 # Optional: CloudTrail for audit logging (recommended for compliance)
-#enable_cloudtrail        = false          # Set to false to disable CloudTrail (recommended for Production and deployment via CI/CD)
-#cloudtrail_retention_days = 90           # Days to retain CloudTrail logs (immutable)
+# enable_cloudtrail         = false       # Set to false to disable (default: true)
+# cloudtrail_retention_days = 90          # Days to retain logs (immutable Object Lock)
 
-#enable_abac              = true
-
-# Optional: Custom tags
+# Tags applied to all resources via provider default_tags
 tags = {
   ManagedBy = "Terraform"
-  Purpose   = "GitHubActionsOIDC"
   Team      = "DevOps"
-}
-
-# Optional: Default resource tags for ABAC
-default_resource_tags = {
-  CostCenter = "Engineering"
-  Owner      = "DevOps"
+  Project   = "bootstrap"
 }
 ```
 
 **Important Notes:**
 - `github_repo = "*"` allows **all repositories** in your organization to use OIDC
 - Use a specific repo name (e.g., `"my-app-repo"`) to restrict to a single repository
-- `company_name` will be used as the S3 bucket prefix: `{company_name}-tfstate-{env}-{account-id}`
-- `enable_abac = true` (recommended) enables Attribute-Based Access Control for project isolation
-- `project_id = "bootstrap"` identifies this as Project 0 (infrastructure project)
+- `company_name` is the S3 bucket prefix: `{company_name}-tfstate-{env}-{account-id}`
+- IAM policy actions are scoped to `arn:aws:s3:::{company_name}-*` — the role cannot act on other buckets
+- `aws:PrincipalTag/environment` is injected by the workflow via `role-session-tags` and prevents cross-environment operations
 - `enable_cloudtrail = true` (default) creates CloudTrail for auditing OIDC authentications and AWS API calls
-- CloudTrail logs use **Object Lock COMPLIANCE mode** - immutable for `cloudtrail_retention_days` (90 days default)
-- **ABAC Benefits:** Project isolation, fine-grained permissions, defense-in-depth security
+- CloudTrail logs use **Object Lock COMPLIANCE mode** — immutable for `cloudtrail_retention_days` (90 days default)
 
 ### 1.3: Validate Configuration
 
@@ -436,6 +423,7 @@ terraform plan -out=tfplan
   - `aws_s3_bucket_lifecycle_configuration.terraform_state`
   - `aws_iam_openid_connect_provider.github_actions`
   - `aws_iam_policy.terraform_deployment`
+  - `aws_iam_role_policy.allow_session_tagging`
   - `aws_iam_role.github_actions`
   - `aws_iam_role_policy_attachment.github_actions_terraform_deployment`
 
@@ -446,11 +434,29 @@ Review the output carefully:
 
 **Example output:**
 ```
-Plan: 10 to add, 0 to change, 0 to destroy.
+Plan: 11 to add, 0 to change, 0 to destroy.
 
 Changes to Outputs:
-  + github_actions_role_arn = "arn:aws:iam::{AWS-ACCOUNT-ID}:role/github-actions-terraform-dev"
-  + terraform_state_bucket  = "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}"
+  + aws_account_id             = "{AWS-ACCOUNT-ID}"
+  + aws_region                 = "{AWS-REGION}"
+  + backend_config             = {
+      + bucket  = (known after apply)
+      + encrypt = true
+      + key     = "bootstrap/terraform.tfstate"
+      + region  = "eu-west-1"
+    }
+  + environment                = "dev"
+  + github_actions_role_arn    = (known after apply)
+  + github_actions_role_name   = "github-actions-terraform-dev"
+  + github_variable_setup      = {
+      + AWS_ROLE_ARN_DEV  = (known after apply)
+      + AWS_ROLE_ARN_PROD = null
+      + AWS_ROLE_ARN_QA   = null
+    }
+  + next_steps                 = (known after apply)
+  + oidc_provider_arn          = (known after apply)
+  + terraform_state_bucket     = (known after apply)
+  + terraform_state_bucket_arn = (known after apply)
 ```
 
 ---
@@ -655,6 +661,7 @@ data.aws_region.current
 aws_iam_openid_connect_provider.github_actions
 aws_iam_policy.terraform_deployment
 aws_iam_role.github_actions
+aws_iam_role_policy.allow_session_tagging[0]
 aws_iam_role_policy_attachment.github_actions_terraform_deployment
 aws_s3_bucket.terraform_state
 aws_s3_bucket_lifecycle_configuration.terraform_state
@@ -1007,44 +1014,35 @@ Now that your foundation is set, deploy your applications with ABAC isolation:
 
 **For each new project (e.g., marketing-ai, dataplatform):**
 
-1. **Create project repository** with terraform code
-2. **Configure backend** to use shared state bucket:
+1. **Create project repository** with Terraform code
+2. **Configure backend** to use the shared state bucket:
    ```hcl
    terraform {
      backend "s3" {
-       bucket         = "yourcompany-tfstate-dev-123456"
-       key            = "marketing-ai/terraform.tfstate"  # MUST match projectID
-       region         = "eu-west-1"
-       encrypt        = true
+       bucket   = "yourcompany-tfstate-dev-123456"
+       key      = "marketing-ai/terraform.tfstate"
+       region   = "eu-west-1"
+       encrypt  = true
      }
    }
    ```
-3. **Pass session tags** in GitHub Actions workflow:
+3. **Pass session tags** in the GitHub Actions workflow (required for environment isolation):
    ```yaml
    - uses: aws-actions/configure-aws-credentials@v4
      with:
        role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
        role-session-tags: |
-         projectID=marketing-ai
+         Project=marketing-ai
          environment=dev
    ```
-4. **Tag resources** for ABAC:
-   ```hcl
-   tags = {
-     projectID   = "marketing-ai"
-     environment = "dev"
-     managed-by  = "terraform"
-   }
-   ```
+4. **Expand `iam-policies.tf`** to add permissions for the new project's services, scoped by ARN and protected by `aws:PrincipalTag/environment`.
 
 **Supported Services:**
-- **Lambda functions** - Serverless applications (project-isolated)
-- **ECS/Fargate** - Containerized workloads (project-isolated)
-- **Glue jobs** - Data pipelines (project-isolated)
-- **Bedrock** - AI/ML applications (project-isolated)
+- **Lambda functions** - Serverless applications
+- **ECS/Fargate** - Containerized workloads
+- **Glue jobs** - Data pipelines
+- **Bedrock** - AI/ML applications
 - **S3, RDS, etc.** - Any Terraform-managed infrastructure
-
-**ABAC guarantees:** Each project can only access its own state files and resources tagged with its projectID.
 
 ### 4. Expand to QA and Prod
 Replicate this setup to other environments:
@@ -1058,12 +1056,11 @@ Configure GitHub repository settings:
 - Require branches to be up to date before merging
 
 ### 6. Expand TerraformDeploymentPolicy
-As your needs grow, add permissions to `bootstrap.tf` with ABAC conditions:
+As your needs grow, add permissions to `iam-policies.tf` scoped by ARN and protected by `aws:PrincipalTag/environment`:
 ```hcl
-# Add to data "aws_iam_policy_document" "terraform_deployment"
-# For project-specific resources (isolated by projectID)
+# Add to data "aws_iam_policy_document" "terraform_deployment" in iam-policies.tf
 statement {
-  sid    = "LambdaManagementProjectSpecific"
+  sid    = "LambdaManagement"
   effect = "Allow"
   actions = [
     "lambda:CreateFunction",
@@ -1071,31 +1068,17 @@ statement {
     "lambda:UpdateFunctionConfiguration",
     # ... more Lambda permissions
   ]
-  resources = ["*"]
-  
-  # ABAC: Require projectID match
-  dynamic "condition" {
-    for_each = var.enable_abac ? [1] : []
-    content {
-      test     = "StringEquals"
-      variable = "lambda:ResourceTag/projectID"
-      values   = ["$${aws:PrincipalTag/projectID}"]
-    }
-  }
-  
-  # ABAC: Require environment match
-  dynamic "condition" {
-    for_each = var.enable_abac ? [1] : []
-    content {
-      test     = "StringEquals"
-      variable = "lambda:ResourceTag/environment"
-      values   = ["$${aws:PrincipalTag/environment}"]
-    }
+  # Scope to company-prefixed function names
+  resources = ["arn:aws:lambda:*:*:function:${var.company_name}-*"]
+
+  # Prevent dev pipeline from modifying prod functions
+  condition {
+    test     = "StringEquals"
+    variable = "aws:PrincipalTag/environment"
+    values   = [var.environment]
   }
 }
 ```
-
-**Note:** See the template in `bootstrap.tf` lines 377-409 for the complete pattern.
 
 ---
 
@@ -1114,9 +1097,8 @@ statement {
 - ✅ Rotate access keys regularly
 - ✅ Enable MFA on bootstrap-dev user
 - ✅ Use CloudTrail to monitor bootstrap-dev activities
-- ✅ Enable ABAC (`enable_abac = true`) for project isolation
-- ✅ Always pass `projectID` and `environment` session tags in workflows
-- ✅ Tag all resources with `projectID`, `environment`, `managed-by`
+- ✅ Always pass `Project` and `environment` session tags in workflows via `role-session-tags`
+- ✅ Tag all resources with `Project`, `environment`, `ManagedBy`
 
 ### 3. Infrastructure Changes
 
@@ -1137,14 +1119,14 @@ statement {
 You've successfully:
 
 - ✅ Created OIDC provider, IAM role, and deployment policy with Terraform
-- ✅ Implemented ABAC (Attribute-Based Access Control) for project isolation
-- ✅ Configured immutable CloudTrail audit logging (Object Lock COMPLIANCE mode)
+- ✅ Implemented ARN-based policy scoping + `aws:PrincipalTag/environment` cross-environment isolation
+- ✅ Configured immutable CloudTrail audit logging (Object Lock COMPLIANCE mode, optional)
 - ✅ Migrated Terraform state from local to S3
 - ✅ Configured GitHub variables for OIDC authentication
-- ✅ Tested GitHub Actions workflow with AWS access and ABAC session tags
-- ✅ Implemented defense-in-depth security with 7 layers of protection
+- ✅ Tested GitHub Actions workflow with AWS access and environment session tags
+- ✅ Implemented defense-in-depth security: OIDC trust policy + ARN scope + principal tag isolation
 
-**Your infrastructure is now fully automated, secure, and ready for multi-project CI/CD deployments! 🚀🔒**
+**Your infrastructure is now fully automated, secure, and ready for multi-project CI/CD deployments!**
 
 ---
 

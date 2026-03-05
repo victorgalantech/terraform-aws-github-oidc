@@ -5,14 +5,11 @@
 resource "aws_s3_bucket" "terraform_state" {
   bucket = local.tfstate_bucket_name
 
-  tags = merge(
-    var.default_resource_tags,
-    {
-      Name          = local.tfstate_bucket_name
-      environment   = var.environment
-      resource-type = "state-backend"
-    }
-  )
+  tags = {
+    Name          = local.tfstate_bucket_name
+    environment   = var.environment
+    resource-type = "state-backend"
+  }
 
   # Ensure IAM policy is fully applied before attempting bucket operations
   depends_on = [aws_iam_role_policy_attachment.github_actions_terraform_deployment]

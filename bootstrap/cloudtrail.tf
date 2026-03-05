@@ -10,14 +10,11 @@ resource "aws_s3_bucket" "cloudtrail" {
   # Object Lock must be enabled at bucket creation
   object_lock_enabled = true
 
-  tags = merge(
-    var.default_resource_tags,
-    {
-      Name          = local.cloudtrail_bucket_name
-      environment   = var.environment
-      resource-type = "audit-logs"
-    }
-  )
+  tags = {
+    Name          = local.cloudtrail_bucket_name
+    environment   = var.environment
+    resource-type = "audit-logs"
+  }
 
   # Ensure IAM policy is fully applied before attempting bucket operations
   depends_on = [aws_iam_role_policy_attachment.github_actions_terraform_deployment]
@@ -263,13 +260,10 @@ resource "aws_cloudtrail" "centralized_audit" {
     insight_type = "ApiErrorRateInsight"
   }
 
-  tags = merge(
-    var.default_resource_tags,
-    {
-      Name          = "centralized-audit-trail-${var.environment}"
-      resource-type = "audit-trail"
-    }
-  )
+  tags = {
+    Name          = "centralized-audit-trail-${var.environment}"
+    resource-type = "audit-trail"
+  }
 
   depends_on = [aws_s3_bucket_policy.cloudtrail]
 }

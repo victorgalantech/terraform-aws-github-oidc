@@ -1,200 +1,42 @@
 # ================================================
-# Terraform Deployment Policy Document
+# Terraform Deployment IAM Policy
+#
+# Security model:
+#   1. OIDC trust policy  - only GitHub Actions from allowed repos/branches can assume this role
+#   2. ARN-based scope    - all S3 actions restricted to arn:aws:s3:::${company_name}-*
+#   3. PrincipalTag check - aws:PrincipalTag/environment (injected by the workflow via role-session-tags)
+#                           prevents a dev pipeline from creating or modifying prod resources
 # ================================================
 
 data "aws_iam_policy_document" "terraform_deployment" {
-  # S3 State Bucket Management - Read-only for all projects
+  # S3: List the state bucket (required by Terraform backend init and plan)
+  # Scoped to this environment's state bucket by ARN.
+  # PrincipalTag/environment ensures the pipeline only accesses its own environment bucket.
   statement {
-    sid    = "S3StateBucketReadOnly"
+    sid    = "S3StateBucketList"
     effect = "Allow"
 
-    actions = [
-      "s3:ListBucket",
-      "s3:GetBucketLocation",
-      "s3:GetBucketVersioning",
-      "s3:GetBucketEncryption",
-      "s3:GetEncryptionConfiguration",
-      "s3:GetBucketPublicAccessBlock",
-      "s3:GetBucketPolicy",
-      "s3:GetBucketTagging",
-      "s3:GetLifecycleConfiguration",
-      "s3:GetBucketAcl",
-      "s3:GetBucketCORS",
-      "s3:GetBucketObjectLockConfiguration"
-    ]
+    actions = ["s3:ListBucket"]
 
-    resources = var.enable_abac ? ["*"] : ["arn:aws:s3:::${var.company_name}-tfstate-*"]
+    resources = ["arn:aws:s3:::${var.company_name}-tfstate-${var.environment}-*"]
 
-    # ABAC: Match environment tag
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "s3:ResourceTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
-      }
-    }
-
-    # ABAC: Ensure resources tagged
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "s3:ResourceTag/resource-type"
-        values   = ["state-backend", "audit-logs"]
-      }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:PrincipalTag/environment"
+      values   = [var.environment]
     }
   }
 
-  # S3 Bucket Creation - org-wide
-  # Note: s3:CreateBucket does not support aws:RequestTag conditions - tags are applied
-  # via a separate PutBucketTagging call after creation.
-  # Security is enforced by the OIDC trust policy (only GitHub Actions can assume this role)
-  # and by the environment principal tag (prevents cross-environment bucket creation).
-  dynamic "statement" {
-    for_each = var.enable_abac ? [1] : []
-    content {
-      sid    = "S3BucketCreation"
-      effect = "Allow"
-
-      actions = [
-        "s3:CreateBucket",
-        "s3:PutBucketTagging"
-      ]
-
-      resources = ["*"]
-
-      # ABAC: Caller must be operating in the correct environment
-      condition {
-        test     = "StringEquals"
-        variable = "aws:PrincipalTag/environment"
-        values   = [var.environment]
-      }
-    }
-  }
-
-  # S3 Bucket Management - org-wide
-  # Resource tag conditions (s3:ResourceTag/*) are intentionally NOT used here.
-  # They cause a chicken-and-egg deadlock: the bucket must be tagged to be managed,
-  # but management is needed before/during tagging (e.g. destroy/recreate cycles).
-  # Security relies on:
-  #   1. OIDC trust policy - only GitHub Actions from allowed repos can assume this role
-  #   2. aws:PrincipalTag/environment - caller's session tag, always present, prevents cross-env ops
-  dynamic "statement" {
-    for_each = var.enable_abac ? [1] : []
-    content {
-      sid    = "S3BucketManagement"
-      effect = "Allow"
-
-      actions = [
-        "s3:DeleteBucket",
-        "s3:PutBucketVersioning",
-        "s3:PutEncryptionConfiguration",
-        "s3:PutBucketPublicAccessBlock",
-        "s3:PutBucketPolicy",
-        "s3:DeleteBucketPolicy",
-        "s3:PutLifecycleConfiguration",
-        "s3:PutBucketAcl",
-        "s3:PutBucketObjectLockConfiguration"
-      ]
-
-      resources = ["*"]
-
-      # ABAC: Principal tag (caller's session) - no chicken-and-egg since it's on the caller not the resource
-      condition {
-        test     = "StringEquals"
-        variable = "aws:PrincipalTag/environment"
-        values   = [var.environment]
-      }
-    }
-  }
-
-  # S3 State Objects - ListBucket operation (for Terraform init/backend config)
+  # S3: Read bucket metadata (used by terraform import, plan refresh, and state reads)
+  # Scoped to company-prefixed buckets. No environment condition - read operations
+  # are safe and required for terraform import to function correctly.
   statement {
-    sid    = "S3StateListBucket"
+    sid    = "S3BucketMetadataRead"
     effect = "Allow"
 
-    actions = [
-      "s3:ListBucket"
-    ]
-
-    resources = var.enable_abac ? ["*"] : ["arn:aws:s3:::${var.company_name}-tfstate-*"]
-
-    # ABAC: Match environment tag
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "s3:ResourceTag/environment"
-        values   = ["$${aws:PrincipalTag/environment}"]
-      }
-    }
-
-    # ABAC: Ensure resources tagged
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringEquals"
-        variable = "s3:ResourceTag/resource-type"
-        values   = ["state-backend", "audit-logs"]
-      }
-    }
-
-    # ABAC: Restrict ListBucket to only list own projectID prefix
-    dynamic "condition" {
-      for_each = var.enable_abac ? [1] : []
-      content {
-        test     = "StringLike"
-        variable = "s3:prefix"
-        values   = [
-          "$${aws:PrincipalTag/Project}/*",
-          "$${aws:PrincipalTag/Project}"
-        ]
-      }
-    }
-  }
-
-  # S3 State Objects - Project-isolated by key pattern (CRITICAL SECURITY)
-  statement {
-    sid    = "S3StateObjectsProjectIsolated"
-    effect = "Allow"
-
-    actions = [
-      "s3:GetObject",
-      "s3:PutObject",
-      "s3:DeleteObject",
-      "s3:GetObjectVersion",
-      "s3:DeleteObjectVersion"
-    ]
-
-    resources = var.enable_abac ? [
-      "arn:aws:s3:::${var.company_name}-tfstate-${var.environment}-*/$${aws:PrincipalTag/Project}/*"
-    ] : [
-      "arn:aws:s3:::${var.company_name}-tfstate-*/*"
-    ]
-  }
-
-  # Allow listing operations (no tag restrictions needed)
-  statement {
-    sid    = "AllowListOperations"
-    effect = "Allow"
-    
-    actions = [
-      "s3:ListAllMyBuckets"
-    ]
-    
-    resources = ["*"]
-  }
-
-  # S3 Read permissions for ALL buckets (including CloudTrail)
-  statement {
-    sid    = "S3ReadAllBuckets"
-    effect = "Allow"
-    
     actions = [
       "s3:GetBucketLocation",
       "s3:GetBucketVersioning",
-      "s3:GetBucketEncryption",
       "s3:GetEncryptionConfiguration",
       "s3:GetBucketPublicAccessBlock",
       "s3:GetBucketPolicy",
@@ -210,15 +52,92 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "s3:GetReplicationConfiguration",
       "s3:GetAccelerateConfiguration"
     ]
-    
-    resources = ["arn:aws:s3:::*"]
+
+    resources = ["arn:aws:s3:::${var.company_name}-*"]
   }
 
-  # IAM Management - Full permissions for bootstrap project
+  # S3: List all buckets (required for Terraform state list operations)
+  statement {
+    sid    = "S3ListAllBuckets"
+    effect = "Allow"
+
+    actions = ["s3:ListAllMyBuckets"]
+
+    resources = ["*"]
+  }
+
+  # S3: State object read/write
+  # Scoped to this environment's bucket and the bootstrap project key prefix.
+  statement {
+    sid    = "S3StateObjects"
+    effect = "Allow"
+
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:GetObjectVersion",
+      "s3:DeleteObjectVersion"
+    ]
+
+    resources = ["arn:aws:s3:::${var.company_name}-tfstate-${var.environment}-*/bootstrap/*"]
+  }
+
+  # S3: Create buckets and apply initial tags
+  # Scoped to company-prefixed ARNs.
+  # PrincipalTag/environment prevents creating prod buckets from a dev pipeline.
+  statement {
+    sid    = "S3BucketCreate"
+    effect = "Allow"
+
+    actions = [
+      "s3:CreateBucket",
+      "s3:PutBucketTagging"
+    ]
+
+    resources = ["arn:aws:s3:::${var.company_name}-*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:PrincipalTag/environment"
+      values   = [var.environment]
+    }
+  }
+
+  # S3: Manage existing buckets (versioning, encryption, policies, lifecycle, etc.)
+  # Scoped to company-prefixed ARNs.
+  # PrincipalTag/environment prevents cross-environment modifications.
+  statement {
+    sid    = "S3BucketManage"
+    effect = "Allow"
+
+    actions = [
+      "s3:DeleteBucket",
+      "s3:PutBucketVersioning",
+      "s3:PutEncryptionConfiguration",
+      "s3:PutBucketPublicAccessBlock",
+      "s3:PutBucketPolicy",
+      "s3:DeleteBucketPolicy",
+      "s3:PutLifecycleConfiguration",
+      "s3:PutBucketAcl",
+      "s3:PutBucketObjectLockConfiguration"
+    ]
+
+    resources = ["arn:aws:s3:::${var.company_name}-*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:PrincipalTag/environment"
+      values   = [var.environment]
+    }
+  }
+
+  # IAM: Full management for OIDC providers, roles, and policies
+  # Required for Terraform to manage the bootstrap IAM resources.
   statement {
     sid    = "IAMManagement"
     effect = "Allow"
-    
+
     actions = [
       "iam:CreateOpenIDConnectProvider",
       "iam:DeleteOpenIDConnectProvider",
@@ -255,15 +174,15 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "iam:UntagPolicy",
       "iam:PassRole"
     ]
-    
+
     resources = ["*"]
   }
 
-  # CloudTrail Management
+  # CloudTrail: Full management (actual resource creation is gated by enable_cloudtrail)
   statement {
     sid    = "CloudTrailManagement"
     effect = "Allow"
-    
+
     actions = [
       "cloudtrail:CreateTrail",
       "cloudtrail:UpdateTrail",
@@ -283,19 +202,17 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "cloudtrail:ListTags",
       "cloudtrail:LookupEvents"
     ]
-    
+
     resources = ["*"]
   }
 
-  # STS permissions for identity verification
+  # STS: Identity verification used in CI/CD steps
   statement {
-    sid    = "STSPermissions"
+    sid    = "STSGetCallerIdentity"
     effect = "Allow"
-    
-    actions = [
-      "sts:GetCallerIdentity"
-    ]
-    
+
+    actions = ["sts:GetCallerIdentity"]
+
     resources = ["*"]
   }
 }

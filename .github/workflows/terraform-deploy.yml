@@ -1,4 +1,4 @@
-name: Terraform Deploy - ABAC Bootstrap
+name: Terraform Deploy - Bootstrap
 
 on:
   push:
@@ -227,7 +227,6 @@ jobs:
           allowed_branches          = ["main", "develop", "release/*", "feature/*"]
           enable_cloudtrail         = false
           cloudtrail_retention_days = 1
-          enable_abac               = true
           tags = {
             ManagedBy   = "Terraform"
             Team        = "DevOps"
@@ -456,7 +455,6 @@ jobs:
           allowed_branches          = ["main", "develop", "release/*", "feature/*"]
           enable_cloudtrail         = false
           cloudtrail_retention_days = 1
-          enable_abac               = true
           tags = {
             ManagedBy   = "Terraform"
             Team        = "DevOps"

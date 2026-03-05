@@ -14,12 +14,9 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
     "1c58a3a8518e8759bf075b76b750d4f2df264fcd"
   ]
 
-    tags = merge(
-    var.default_resource_tags,
-    {
-      Name = "github-actions-oidc-provider"
-    }
-  )
+  tags = {
+    Name = "github-actions-oidc-provider"
+  }
 }
 
 # ================================================
@@ -37,7 +34,7 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
  
     actions = [
       "sts:AssumeRoleWithWebIdentity",
-      "sts:TagSession"  # ABAC: Allow tagging sessions
+      "sts:TagSession"
     ]
  
     condition {
@@ -57,20 +54,15 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
 resource "aws_iam_role" "github_actions" {
   name               = "github-actions-terraform-${var.environment}"
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume_role.json
-  description        = "GitHub Actions OIDC role for ${var.environment} environment with ABAC support"
+  description        = "GitHub Actions OIDC role for ${var.environment} environment"
 
-  tags = merge(
-    var.default_resource_tags,
-    {
-      Name = "github-actions-terraform-${var.environment}"
-    }
-  )
+  tags = {
+    Name = "github-actions-terraform-${var.environment}"
+  }
 }
 
-# ABAC: Allow session tagging when assuming the role
 resource "aws_iam_role_policy" "allow_session_tagging" {
-  count  = var.enable_abac ? 1 : 0
-  name   = "AllowSessionTagging"
+  name = "AllowSessionTagging"
   role   = aws_iam_role.github_actions.id
 
   policy = jsonencode({
