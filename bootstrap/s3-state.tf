@@ -8,6 +8,7 @@ resource "aws_s3_bucket" "terraform_state" {
   tags = {
     Name          = local.tfstate_bucket_name
     resource-type = "state-backend"
+    xxxx = "xxxx"
   }
 
   # Ensure IAM policy is fully applied before attempting bucket operations
