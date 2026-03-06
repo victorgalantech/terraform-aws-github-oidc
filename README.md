@@ -10,7 +10,7 @@ Bootstraps the complete AWS CI/CD foundation for GitHub Actions: keyless OIDC au
 
 ## What It Creates
 
-Per AWS account (run once per environment):
+Per AWS account (run once per environment), managed by Terragrunt:
 
 | Resource | Name pattern | Purpose |
 |---|---|---|
@@ -22,11 +22,25 @@ Per AWS account (run once per environment):
 
 **Security model:** environment name is embedded in every resource ARN. The dev role cannot touch QA or prod resources — enforced by IAM policy, not by convention.
 
+**Repository structure:**
+```
+modules/bootstrap/   ← Terraform module (single source of truth)
+live/
+  common.hcl         ← Shared: company_name, github_org, region
+  dev/
+    account.hcl      ← Dev: account_id, aws_profile
+    bootstrap/
+      terragrunt.hcl ← Dev deploy unit
+  qa/  ...           ← Same pattern
+  prod/ ...          ← Same pattern
+```
+
 ---
 
 ## Prerequisites
 
 - Terraform `>= 1.10.0` (for S3 native state locking — no DynamoDB needed)
+- Terragrunt `>= 0.67.0` ([install](https://terragrunt.gruntwork.io/docs/getting-started/install/))
 - AWS CLI `>= 2.x` configured with a bootstrap IAM user
 - GitHub repository with Actions enabled
 
@@ -38,35 +52,37 @@ See [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md) for how to crea
 
 **~10 minutes per environment.** Test dev before replicating to qa and prod.
 
-**1. Clone and configure:**
+**1. Configure shared settings:**
 ```bash
-cd bootstrap/
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars — set company_name, github_org, environment
+# Edit live/common.hcl — set company_name, github_org, aws_region
+# Edit live/dev/account.hcl — set your AWS account_id
 ```
 
-**2. Deploy:**
+**2. First-time deploy (S3 bucket doesn't exist yet):**
 ```bash
 export AWS_PROFILE=bootstrap-dev
-terraform init
-terraform apply
+cd live/dev/bootstrap
+
+# Apply with local state (bucket doesn't exist yet)
+terragrunt apply --terragrunt-no-auto-init -backend=false
+
+# Migrate state to the S3 bucket just created
+terragrunt init -migrate-state
 ```
 
-**3. Migrate state to S3:**
+**3. All subsequent deploys (CI/CD or manual):**
 ```bash
-BUCKET=$(terraform output -raw terraform_state_bucket)
-terraform init -migrate-state -backend-config="bucket=${BUCKET}" \
-  -backend-config="key=bootstrap/terraform.tfstate" \
-  -backend-config="region=eu-west-1"
+terragrunt plan
+terragrunt apply
 ```
 
 **4. Set GitHub variables:**
 
 Go to **Settings → Secrets and variables → Actions → Variables** and add:
-- `AWS_ROLE_ARN_DEV` — from `terraform output github_actions_role_arn`
+- `AWS_ROLE_ARN_DEV` — from `terragrunt output github_actions_role_arn`
 - `COMPANY_NAME` — your company prefix
 
-**5. Push to a branch — CI/CD runs automatically.**
+**5. Push to a branch — CI/CD runs automatically via `live/{env}/bootstrap/`.**
 
 > Full step-by-step with verification commands: [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md)
 
@@ -125,14 +141,15 @@ Each role is restricted to the OIDC trust policy for its own environment's branc
 
 | Document | Purpose |
 |---|---|
-| [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md) | Full step-by-step deployment guide with verification commands |
-| [docs/terragrunt-environments.md](docs/terragrunt-environments.md) | Managing dev / qa / prod with Terragrunt (DRY multi-env setup) |
+| [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md) | Full step-by-step Terragrunt deployment guide with verification commands |
+| [live/common.hcl](live/common.hcl) | Edit here: `company_name`, `github_org`, `aws_region` |
+| [live/{env}/account.hcl](live/dev/account.hcl) | Edit here: per-env `account_id`, `aws_profile` |
+| [live/{env}/bootstrap/terragrunt.hcl](live/dev/bootstrap/terragrunt.hcl) | Edit here: per-env module inputs (CloudTrail, branch restrictions) |
 | [docs/adr/README.md](docs/adr/README.md) | Architecture Decision Records index |
 | [docs/adr/0001-arn-based-isolation-vs-abac.md](docs/adr/0001-arn-based-isolation-vs-abac.md) | Why ARN-based isolation replaced ABAC resource tags |
 | [docs/adr/0002-s3-native-locking-vs-dynamodb.md](docs/adr/0002-s3-native-locking-vs-dynamodb.md) | Why S3 native locking (`use_lockfile`) replaced DynamoDB |
 | [docs/adr/0003-organisation-wide-oidc-role.md](docs/adr/0003-organisation-wide-oidc-role.md) | Why the OIDC role has broad IAM permissions (accepted risk) |
 | [docs/runbooks/state-bucket-recovery.md](docs/runbooks/state-bucket-recovery.md) | How to recover from state bucket deletion or corruption |
-| [IMPROVEMENTS.md](IMPROVEMENTS.md) | Full improvement log with status of all known issues |
 
 ---
 

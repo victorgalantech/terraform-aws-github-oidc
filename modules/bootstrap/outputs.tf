@@ -53,38 +53,55 @@ output "cloudtrail_arn" {
   value       = var.enable_cloudtrail ? aws_cloudtrail.centralized_audit[0].arn : null
 }
 
+output "terraform_state_kms_alias" {
+  description = "KMS alias ARN for the state bucket encryption key"
+  value       = aws_kms_alias.terraform_state.arn
+}
+
+output "terraform_state_access_logs_bucket" {
+  description = "S3 bucket receiving access logs for the state bucket"
+  value       = aws_s3_bucket.access_logs.id
+}
+
 output "backend_config" {
-  description = "Backend configuration for state migration"
+  description = "Backend configuration for downstream projects"
   value = {
-    bucket  = aws_s3_bucket.terraform_state.id
-    key     = "bootstrap/terraform.tfstate"
-    region  = local.region
-    encrypt = true
+    bucket       = aws_s3_bucket.terraform_state.id
+    key          = "bootstrap/terraform.tfstate"
+    region       = local.region
+    encrypt      = true
+    use_lockfile = true
   }
 }
 
+output "cloudtrail_kms_alias" {
+  description = "KMS alias ARN for CloudTrail log encryption (null when CloudTrail is disabled)"
+  value       = var.enable_cloudtrail ? aws_kms_alias.cloudtrail[0].arn : null
+}
+
 output "github_variable_setup" {
-  description = "GitHub variable to set in repository"
+  description = "GitHub repository variable to set: name → value"
   value = {
-    AWS_ROLE_ARN_DEV  = var.environment == "dev" ? aws_iam_role.github_actions.arn : null
-    AWS_ROLE_ARN_QA   = var.environment == "qa" ? aws_iam_role.github_actions.arn : null
-    AWS_ROLE_ARN_PROD = var.environment == "prod" ? aws_iam_role.github_actions.arn : null
+    name  = "AWS_ROLE_ARN_${upper(var.environment)}"
+    value = aws_iam_role.github_actions.arn
   }
 }
 
 output "next_steps" {
   description = "Next steps after bootstrap"
-  value = <<-EOT
-  
+  value       = <<-EOT
+
   ========================================
-  Bootstrap Complete! 🎉
+  Bootstrap Complete!
   ========================================
-  
+
   Resources Created:
   - OIDC Provider: ${aws_iam_openid_connect_provider.github_actions.arn}
   - IAM Role: ${aws_iam_role.github_actions.name}
   - S3 State Bucket: ${aws_s3_bucket.terraform_state.id}
-  ${var.enable_cloudtrail ? "- CloudTrail: ${aws_cloudtrail.centralized_audit[0].name} (enabled for audit logging)" : "- CloudTrail: disabled"}
-  
+  ${var.enable_cloudtrail ? "- CloudTrail: ${aws_cloudtrail.centralized_audit[0].name} (enabled)" : "- CloudTrail: disabled"}
+
+  Next: Set GitHub variable AWS_ROLE_ARN_${upper(var.environment)} = ${aws_iam_role.github_actions.arn}
+
   EOT
 }

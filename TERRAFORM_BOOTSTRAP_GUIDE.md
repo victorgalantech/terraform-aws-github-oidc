@@ -1,23 +1,35 @@
-# Terraform Bootstrap Guide for GitHub Actions OIDC
+# Terragrunt Bootstrap Guide for GitHub Actions OIDC
 
-This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `bootstrap-{env}` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, and S3 state backend — no external dependencies required.
+This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using **Terragrunt** with the `bootstrap-{env}` user credentials. Terragrunt wraps Terraform to manage dev/qa/prod environments from a single DRY module with no duplicated configuration.
 
 **Repository:** `terraform-aws-github-oidc`
 
-> **Start here:** [README.md](../README.md) — project overview, architecture, and documentation index.
+> **Start here:** [README.md](README.md) — project overview, architecture, and documentation index.
+
+**Structure:**
+```
+modules/bootstrap/       ← Terraform module (edit for logic changes)
+live/
+  common.hcl             ← Shared: company_name, github_org, region
+  terragrunt.hcl         ← Root: remote_state + provider generation
+  dev/
+    account.hcl          ← Dev account_id, aws_profile
+    bootstrap/
+      terragrunt.hcl     ← Dev inputs (CloudTrail, branch restrictions)
+  qa/  ...               ← Same pattern
+  prod/ ...              ← Same pattern
+```
 
 ## 📋 Table of Contents
 
 - [Why Terraform Bootstrap?](#why-terraform-bootstrap)
 - [Prerequisites](#prerequisites)
-- [Project Structure](#project-structure)
-- [Step 1: Configure Terraform Variables](#step-1-configure-terraform-variables)
-- [Step 2: Initialize and Plan](#step-2-initialize-and-plan)
-- [Step 3: Apply Bootstrap Infrastructure](#step-3-apply-bootstrap-infrastructure)
-- [Step 4: Migrate State to S3 Backend](#step-4-migrate-state-to-s3-backend)
-- [Step 5: Verify Setup](#step-5-verify-setup)
-- [Step 6: Configure GitHub Variables](#step-6-configure-github-variables)
-- [Step 7: Test GitHub Actions Workflow](#step-7-test-github-actions-workflow)
+- [Step 1: Configure Terragrunt](#step-1-configure-terragrunt)
+- [Step 2: First-Time Deploy (local state)](#step-2-first-time-deploy-local-state)
+- [Step 3: Migrate State to S3](#step-3-migrate-state-to-s3)
+- [Step 4: Verify Setup](#step-4-verify-setup)
+- [Step 5: Configure GitHub Variables](#step-5-configure-github-variables)
+- [Step 6: Test GitHub Actions Workflow](#step-6-test-github-actions-workflow)
 - [Multi-Environment Setup](#multi-environment-setup)
 - [Troubleshooting](#troubleshooting)
 - [State Migration Rollback](#state-migration-rollback)
@@ -57,7 +69,8 @@ This **single repository** creates your complete CI/CD foundation:
 
 ### 1. Required Tools
 
-- **Terraform** >= 1.6.0 ([Install](https://developer.hashicorp.com/terraform/downloads))
+- **Terraform** >= 1.10.0 ([Install](https://developer.hashicorp.com/terraform/downloads))
+- **Terragrunt** >= 0.67.0 ([Install](https://terragrunt.gruntwork.io/docs/getting-started/install/))
 - **AWS CLI** >= 2.x ([Install](https://aws.amazon.com/cli/))
 - **Git** (for version control)
 
@@ -65,6 +78,7 @@ Verify installations:
 
 ```bash
 terraform version
+terragrunt --version
 aws --version
 git --version
 ```
@@ -308,196 +322,153 @@ You'll need:
 
 ---
 
-## Step 1: Configure Terraform Variables
+## Step 1: Configure Terragrunt
 
-Navigate to the bootstrap directory:
+All configuration is in `live/` — **no `terraform.tfvars` files needed**.
 
-```bash
-cd terraform-aws-oidc-bootstrap/bootstrap
-```
+### 1.1: Edit common.hcl (shared settings)
 
-### 2.1: Copy Example Variables File
-
-```bash
-cp terraform.tfvars.example terraform.tfvars
-```
-
-### 1.2: Edit terraform.tfvars
-
-Open `terraform.tfvars` and configure your values:
+Open `live/common.hcl` and set values shared across all environments:
 
 ```hcl
-aws_region   = "eu-west-1"
-environment  = "dev"
-github_org   = "your-github-org"        # Replace with your GitHub organization
-github_repo  = "*"                       # "*" for all repos, or specific repo name
-company_name = "yourcompany"             # Replace with your company prefix
+locals {
+  aws_region   = "eu-west-1"
+  company_name = "yourcompany"     # Prefix for S3 buckets: {company}-tfstate-{env}-{account}
+  github_org   = "your-github-org" # GitHub organisation name
+  github_repo  = "*"               # "*" = all repos in org
 
-# Optional: Enable branch restrictions
-enable_branch_restriction = false
-allowed_branches         = ["main", "develop", "release/*"]
+  enable_branch_restriction = false
+  allowed_branches          = ["main", "develop", "release/*", "feature/*"]
+}
+```
 
-# Optional: CloudTrail for audit logging (recommended for compliance)
-# enable_cloudtrail         = false       # Set to false to disable (default: true)
-# cloudtrail_retention_days = 90          # Days to retain logs (immutable Object Lock)
+### 1.2: Edit dev/account.hcl (dev-specific settings)
 
-# Tags applied to all resources via provider default_tags
-tags = {
-  ManagedBy = "Terraform"
-  Team      = "DevOps"
-  Project   = "bootstrap"
+Open `live/dev/account.hcl`:
+
+```hcl
+locals {
+  environment = "dev"
+  account_id  = "111111111111"  # Your dev AWS account ID
+  aws_profile = "bootstrap-dev" # AWS CLI profile
+}
+```
+
+Repeat for `live/qa/account.hcl` and `live/prod/account.hcl` with their respective account IDs.
+
+### 1.3: Review per-env inputs (optional)
+
+Open `live/dev/bootstrap/terragrunt.hcl` to adjust environment-specific settings:
+
+```hcl
+inputs = {
+  enable_cloudtrail         = false  # Set to true to enable audit logging
+  cloudtrail_retention_days = 90
+  # ... other overrides
 }
 ```
 
 **Important Notes:**
-- `github_repo = "*"` allows **all repositories** in your organization to use OIDC
-- Use a specific repo name (e.g., `"my-app-repo"`) to restrict to a single repository
-- `company_name` is the S3 bucket prefix: `{company_name}-tfstate-{env}-{account-id}`
-- IAM policy actions are scoped to `arn:aws:s3:::{company_name}-*` — the role cannot act on other buckets
-- `aws:PrincipalTag/environment` is injected by the workflow via `role-session-tags` and prevents cross-environment operations
-- `enable_cloudtrail = true` (default) creates CloudTrail for auditing OIDC authentications and AWS API calls
-- CloudTrail logs use **Object Lock COMPLIANCE mode** — immutable for `cloudtrail_retention_days` (90 days default)
+- `company_name` is the S3 bucket prefix: `{company}-tfstate-{env}-{account-id}`
+- `aws:PrincipalTag/environment` prevents cross-environment operations in IAM
+- Prod has `enable_cloudtrail = true` pre-configured in `live/prod/bootstrap/terragrunt.hcl`
+- The `account_id` in `account.hcl` must exactly match the AWS account ID for the S3 bucket name to resolve correctly
 
-### 1.3: Validate Configuration
-
-Review the configuration:
+### 1.4: Validate Configuration
 
 ```bash
-cat terraform.tfvars
-```
+# Check HCL formatting
+terragrunt hclfmt --terragrunt-check --terragrunt-working-dir live/
 
-Ensure:
-- No placeholder values remain (e.g., `YOUR_GITHUB_ORG`)
-- `github_org` matches your actual GitHub organization
-- `company_name` follows AWS S3 naming rules (lowercase, no special characters except hyphens)
-
----
-
-## Step 2: Initialize and Plan
-
-### 2.1: Initialize Terraform
-
-This downloads the required AWS provider and initializes the working directory:
-
-```bash
-terraform init
-```
-
-**Expected output:**
-```
-Initializing the backend...
-Initializing provider plugins...
-- Finding hashicorp/aws versions matching "~> 5.0"...
-- Installing hashicorp/aws v5.x.x...
-
-Terraform has been successfully initialized!
-```
-
-### 2.2: Validate Configuration
-
-Check for syntax errors:
-
-```bash
-terraform validate
-```
-
-**Expected output:**
-```
-Success! The configuration is valid.
-```
-
-### 2.3: Review Execution Plan
-
-Generate and review the plan before applying:
-
-```bash
-terraform plan -out=tfplan
-```
-
-**What to verify in the plan:**
-- **11 resources** to be created:
-  - `aws_s3_bucket.terraform_state`
-  - `aws_s3_bucket_versioning.terraform_state`
-  - `aws_s3_bucket_server_side_encryption_configuration.terraform_state`
-  - `aws_s3_bucket_public_access_block.terraform_state`
-  - `aws_s3_bucket_policy.terraform_state`
-  - `aws_s3_bucket_lifecycle_configuration.terraform_state`
-  - `aws_iam_openid_connect_provider.github_actions`
-  - `aws_iam_policy.terraform_deployment`
-  - `aws_iam_role.github_actions`
-  - `aws_iam_role_policy_attachment.github_actions_terraform_deployment`
-
-Review the output carefully:
-- Check role ARNs match your account
-- Verify S3 bucket name follows convention
-- Confirm trust policy includes correct GitHub org/repo
-
-**Example output:**
-```
-Plan: 11 to add, 0 to change, 0 to destroy.
-
-Changes to Outputs:
-  + aws_account_id             = "{AWS-ACCOUNT-ID}"
-  + aws_region                 = "{AWS-REGION}"
-  + backend_config             = {
-      + bucket  = (known after apply)
-      + encrypt = true
-      + key     = "bootstrap/terraform.tfstate"
-      + region  = "eu-west-1"
-    }
-  + environment                = "dev"
-  + github_actions_role_arn    = (known after apply)
-  + github_actions_role_name   = "github-actions-terraform-dev"
-  + github_variable_setup      = {
-      + AWS_ROLE_ARN_DEV  = (known after apply)
-      + AWS_ROLE_ARN_PROD = null
-      + AWS_ROLE_ARN_QA   = null
-    }
-  + next_steps                 = (known after apply)
-  + oidc_provider_arn          = (known after apply)
-  + terraform_state_bucket     = (known after apply)
-  + terraform_state_bucket_arn = (known after apply)
+# Verify no placeholder values remain
+grep -r "YOUR_" live/
 ```
 
 ---
 
-## Step 3: Apply Bootstrap Infrastructure
+## Step 2: First-Time Deploy (local state)
 
-### 3.1: Apply the Plan
+> **Why local state first?** The S3 bucket that stores Terraform state is created BY this module. On first run, it doesn't exist yet, so we deploy with a local backend then migrate.
 
-Execute the saved plan:
+### 2.1: Navigate to the dev environment
 
 ```bash
-terraform apply tfplan
+cd live/dev/bootstrap
+export AWS_PROFILE=bootstrap-dev
 ```
 
-**OR** apply directly (will prompt for confirmation):
+### 2.2: Apply with local state
 
 ```bash
-terraform apply
+# --terragrunt-no-auto-init skips remote state init
+# -backend=false uses local state for this first apply
+terragrunt apply --terragrunt-no-auto-init -backend=false
 ```
 
 Type `yes` when prompted.
 
+**What Terragrunt does:**
+1. Downloads `modules/bootstrap` source
+2. Generates `provider.tf` (from root `live/terragrunt.hcl`)
+3. Passes `inputs = {}` from `live/dev/bootstrap/terragrunt.hcl` as Terraform variables
+4. Runs `terraform apply`
+
 **Expected output:**
 ```
-aws_iam_openid_connect_provider.github_actions: Creating...
-aws_s3_bucket.terraform_state: Creating...
-...
 Apply complete! Resources: 11 added, 0 changed, 0 destroyed.
 
 Outputs:
-
-- OIDC Provider: arn:aws:iam::{AWS-ACCOUNT-ID}:oidc-provider/token.actions.githubusercontent.com
-- IAM Role: github-actions-terraform-dev
-- S3 State Bucket: victorgalantech-tfstate-dev-{AWS-ACCOUNT-ID}
-- CloudTrail: disabled
-...
+  github_actions_role_arn = "arn:aws:iam::111111111111:role/github-actions-terraform-dev"
+  terraform_state_bucket  = "yourcompany-tfstate-dev-111111111111"
+  ...
 ```
 
-### 3.2: Verify Resources Created
+### 2.3: Save outputs
 
-Check each resource:
+```bash
+# Note the role ARN and bucket name from the output above
+terragrunt output -json > /tmp/bootstrap-outputs-dev.json
+cat /tmp/bootstrap-outputs-dev.json
+```
+
+---
+
+## Step 3: Migrate State to S3
+
+### 3.1: Initialise with S3 backend
+
+```bash
+# Still in live/dev/bootstrap/
+terragrunt init -migrate-state
+```
+
+Terragrunt generates `backend.tf` pointing to `{company}-tfstate-dev-{account-id}` and Terraform migrates the local state to S3.
+
+**You will be prompted:**
+```
+Do you want to copy existing state to the new backend?
+Enter a value: yes
+```
+
+**Expected output:**
+```
+Successfully configured the backend "s3"!
+Terraform has been successfully initialized!
+```
+
+### 3.2: Verify state in S3
+
+```bash
+BUCKET=$(terragrunt output -raw terraform_state_bucket)
+aws s3 ls s3://${BUCKET}/live/dev/bootstrap/ --profile bootstrap-dev
+```
+
+**Expected output:**
+```
+2026-01-07 20:00:00      12345 terraform.tfstate
+```
+
+### 3.3: Verify Resources Created
 
 ```bash
 # Verify OIDC provider
@@ -506,341 +477,158 @@ aws iam list-open-id-connect-providers --profile bootstrap-dev
 # Verify IAM role
 aws iam get-role --role-name github-actions-terraform-dev --profile bootstrap-dev
 
-# Verify S3 bucket (Terraform state)
+# Verify S3 bucket
 aws s3 ls --profile bootstrap-dev | grep tfstate
-
-
-# Verify CloudTrail (if enabled)
-aws cloudtrail get-trail-status --name github-actions-oidc-dev --profile bootstrap-dev
-
-# Verify CloudTrail S3 bucket (if enabled)
-aws s3 ls --profile bootstrap-dev | grep cloudtrail-logs
-```
-
-### 3.3: Save Outputs
-
-Save the outputs for later use:
-
-```bash
-terraform output > bootstrap-outputs.txt
-cat bootstrap-outputs.txt
-```
-
-**Important:** Keep the `github_actions_role_arn` value - you'll need it for GitHub Variables.
-
----
-
-## Step 4: Migrate State to S3 Backend
-
-Currently, the Terraform state is stored **locally** in `terraform.tfstate`. For production use, we need to migrate it to the S3 bucket we just created.
-
-### 4.1: Generate Backend Configuration
-
-Create `backend-config.hcl` with values from outputs:
-
-```bash
-# Get values from Terraform outputs
-BUCKET=$(terraform output -raw terraform_state_bucket)
-REGION=$(terraform output -raw aws_region)
-
-# Create backend configuration file
-cat > backend-config.hcl <<EOF
-bucket         = "$BUCKET"
-key            = "bootstrap/terraform.tfstate"
-region         = "$REGION"
-encrypt        = true
-EOF
-
-echo "Created backend-config.hcl:"
-cat backend-config.hcl
-```
-
-**Example backend-config.hcl:**
-```hcl
-bucket         = "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}"
-key            = "bootstrap/terraform.tfstate"
-region         = "eu-west-1"
-encrypt        = true
-```
-
-### 4.2: Update backend.tf
-
-Edit `backend.tf` and uncomment the backend configuration:
-
-```hcl
-terraform {
-  backend "s3" {
-    # Configuration provided via backend-config.hcl
-  }
-}
-```
-
-### 4.3: Backup Local State
-
-**CRITICAL:** Create a backup before migration:
-
-```bash
-cp terraform.tfstate terraform.tfstate.backup
-cp terraform.tfstate.backup ../terraform.tfstate.backup.$(date +%Y%m%d-%H%M%S)
-ls -la terraform.tfstate*
-```
-
-### 4.4: Reinitialize with Backend Migration
-
-Run Terraform init with the `-migrate-state` flag:
-
-```bash
-terraform init -migrate-state -backend-config=backend-config.hcl
-```
-
-**Terraform will prompt:**
-```
-Initializing the backend...
-Do you want to copy existing state to the new backend?
-  Pre-existing state was found while migrating the previous "local" backend to the
-  newly configured "s3" backend. No existing state was found in the newly
-  configured "s3" backend. Do you want to copy this state to the new "s3"
-  backend? Enter "yes" to copy and "no" to start with an empty state.
-
-  Enter a value:
-```
-
-**Type `yes` and press Enter.**
-
-**Expected output:**
-```
-Successfully configured the backend "s3"! Terraform will automatically
-use this backend unless the backend configuration changes.
-
-Terraform has been successfully initialized!
-```
-
-### 4.5: Verify State in S3
-
-Check that state was uploaded:
-
-```bash
-aws s3 ls s3://$BUCKET/bootstrap/ --profile bootstrap-dev
-```
-
-**Expected output:**
-```
-2026-01-07 20:00:00      12345 terraform.tfstate
-```
-
-### 4.6: Test State Lock
-
-
-```bash
-# Run a plan - this will acquire a lock
-terraform plan
-
-# Should complete successfully with no changes
 ```
 
 ---
 
-## Step 5: Verify Setup
+## Step 4: Verify Setup
 
-### 5.1: Verify Terraform State
+### 4.1: Run plan to confirm no changes
 
 ```bash
-# Check current state
-terraform state list
+# Still in live/dev/bootstrap/ with AWS_PROFILE=bootstrap-dev
+terragrunt plan
+```
 
-# Should show all resources
+**Expected output:** `No changes. Your infrastructure matches the configuration.`
+
+### 4.2: Verify Terraform State
+
+```bash
+terragrunt state list
 ```
 
 **Expected output:**
 ```
 data.aws_caller_identity.current
-data.aws_iam_policy_document.github_actions_assume_role
-data.aws_iam_policy_document.terraform_deployment
-data.aws_iam_policy_document.terraform_state_bucket_policy
 data.aws_region.current
 aws_iam_openid_connect_provider.github_actions
 aws_iam_policy.terraform_deployment
 aws_iam_role.github_actions
+aws_iam_role_policy.allow_session_tagging
 aws_iam_role_policy_attachment.github_actions_terraform_deployment
+aws_kms_key.terraform_state
 aws_s3_bucket.terraform_state
 aws_s3_bucket_lifecycle_configuration.terraform_state
+aws_s3_bucket_logging.terraform_state
 aws_s3_bucket_policy.terraform_state
 aws_s3_bucket_public_access_block.terraform_state
 aws_s3_bucket_server_side_encryption_configuration.terraform_state
 aws_s3_bucket_versioning.terraform_state
-...
 ```
 
-### 5.2: Verify AWS Resources
+### 4.3: Test IAM Role Trust Policy
 
 ```bash
-# Check S3 bucket versioning
-aws s3api get-bucket-versioning \
-  --bucket $(terraform output -raw terraform_state_bucket) \
-  --profile bootstrap-dev
-
-# Check S3 encryption
-aws s3api get-bucket-encryption \
-  --bucket $(terraform output -raw terraform_state_bucket) \
-  --profile bootstrap-dev
-
-  --profile bootstrap-dev
-```
-
-### 5.3: Test IAM Role Trust Policy
-
-```bash
-# Get role trust policy
 aws iam get-role \
   --role-name github-actions-terraform-dev \
   --query 'Role.AssumeRolePolicyDocument' \
   --profile bootstrap-dev
 ```
 
-Verify the trust policy includes:
-- Federated principal: Your OIDC provider ARN
-- Condition for `token.actions.githubusercontent.com:aud`
-- Condition for `token.actions.githubusercontent.com:sub` with your GitHub org
-
-### 5.4: Simulate IAM Policy
-
-Test that GitHub Actions role can access S3:
+### 4.4: Simulate IAM Policy
 
 ```bash
-# Simulate S3 access
-aws iam simulate-principal-policy \
-  --policy-source-arn $(terraform output -raw github_actions_role_arn) \
-  --action-names s3:PutObject \
-  --resource-arns "arn:aws:s3:::$(terraform output -raw terraform_state_bucket)/*" \
-  --profile bootstrap-dev
+ROLE_ARN=$(terragrunt output -raw github_actions_role_arn)
+BUCKET=$(terragrunt output -raw terraform_state_bucket)
 
+aws iam simulate-principal-policy \
+  --policy-source-arn "${ROLE_ARN}" \
+  --action-names s3:PutObject \
+  --resource-arns "arn:aws:s3:::${BUCKET}/*" \
+  --profile bootstrap-dev
 # Should show: EvalDecision: allowed
 ```
 
 ---
 
-## Step 6: Configure GitHub Variables
+## Step 5: Configure GitHub Variables
 
-### 6.1: Get Role ARN
+### 5.1: Get Role ARN
 
 ```bash
-terraform output github_actions_role_arn
+terragrunt output github_actions_role_arn
 ```
 
-Copy the output (e.g., `arn:aws:iam::{AWS-ACCOUNT-ID}:role/github-actions-terraform-dev`)
+Copy the output (e.g., `arn:aws:iam::111111111111:role/github-actions-terraform-dev`)
 
-### 6.2: Set GitHub Repository Variable
+---
+
+### 5.2: Set GitHub Repository Variables
 
 1. Go to your GitHub repository
 2. Navigate to **Settings** → **Secrets and variables** → **Actions**
 3. Click **Variables** tab → **New repository variable**
-4. Set:
-   - **Name**: `AWS_ROLE_ARN_DEV`
-   - **Value**: `arn:aws:iam::{AWS-ACCOUNT-ID}:role/github-actions-terraform-dev`
-5. Click **Add variable**
+4. Add:
+   - `AWS_ROLE_ARN_DEV` = `arn:aws:iam::111111111111:role/github-actions-terraform-dev`
+   - `COMPANY_NAME` = your company prefix (from `live/common.hcl`)
 
-### 6.3: Verify Variable
+### 5.3: Verify
 
-Go back to the Variables page and confirm `AWS_ROLE_ARN_DEV` is listed.
+Go back to the Variables page and confirm both variables are listed.
 
 ---
 
-## Step 7: Test GitHub Actions Workflow
+## Step 6: Test GitHub Actions Workflow
 
-### 7.1: Create Test Workflow
-
-Create `.github/workflows/test-oidc.yml` and comment the rest of the github workflows:
-
-```yaml
-name: Test OIDC Setup
-
-on:
-  push:
-    branches:
-      - main
-      - develop
-      - feature/*
-  pull_request:
-    branches:
-      - main
-      - develop
-
-permissions:
-  id-token: write
-  contents: read
-
-jobs:
-  test-oidc:
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
-          role-session-name: github-${{ github.run_id }}
-          role-session-tags: |
-            projectID=bootstrap
-            environment=dev
-          aws-region: eu-west-1
-      
-      - name: Verify AWS credentials
-        run: |
-          echo "Testing AWS OIDC authentication..."
-          aws sts get-caller-identity
-          echo "✅ Successfully authenticated with AWS using OIDC!"
-      
-      - name: Test S3 access
-        run: |
-          echo "Testing S3 access..."
-          COMPANY=$(grep company_name bootstrap/terraform.tfvars | cut -d'"' -f2)
-          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-          aws s3 ls s3://${COMPANY}-tfstate-dev-${ACCOUNT}/ && echo "✅ S3 access successful"
-```
-
-### 7.2: Commit and Push
+### 6.1: Push changes and trigger the workflow
 
 ```bash
-git add .github/workflows/test-oidc.yml
-git add bootstrap/
-git commit -m "Add Terraform bootstrap and OIDC test workflow"
-git push origin main
+git add live/ modules/ .github/
+git commit -m "feat: Terragrunt bootstrap implementation"
+git push origin develop
 ```
 
-### 7.3: Monitor Workflow
+This triggers `.github/workflows/terraform-deploy.yml` which:
+1. Detects branch `develop` → `dev` environment
+2. Runs `terragrunt plan` in `live/dev/bootstrap/`
+3. Posts plan diff to the PR (if it's a PR)
+4. Applies if there are changes and it's a push (not PR)
+
+### 6.2: Monitor Workflow
 
 1. Go to **Actions** tab in GitHub
-2. Click on the workflow run
-3. Verify all steps complete successfully
+2. Click the `Terraform Deploy - Bootstrap` run
+3. Verify `Terragrunt Plan` and `Terragrunt Apply` steps pass
 
-**Expected output in "Verify AWS credentials" step:**
-```json
-{
-    "UserId": "AROAXXXXXXXXXXXXXXXXX:GitHubActions-123456",
-    "Account": "{AWS-ACCOUNT-ID}",
-    "Arn": "arn:aws:sts::{AWS-ACCOUNT-ID}:assumed-role/github-actions-terraform-dev/GitHubActions-123456"
-}
-✅ Successfully authenticated with AWS using OIDC!
+**Expected output in "Terragrunt Apply" step:**
+```
+Apply complete! Resources: 0 added, 0 changed, 0 destroyed.
+(no changes — state already matches)
 ```
 
 ---
 
 ## Multi-Environment Setup
 
-To set up QA and Prod environments, repeat Steps 1–7 for each environment:
+With Terragrunt the structure is already in place — you just need to fill in account details and repeat the first-time deploy for each environment.
 
-1. Create `bootstrap-qa` / `bootstrap-prod` IAM users in their AWS accounts (see [Prerequisites](#2-create-bootstrap-env-user-with-required-permissions))
-2. Configure AWS CLI profiles: `aws configure --profile bootstrap-qa`
-3. Copy and edit `terraform.tfvars` — change `environment = "qa"` (or `"prod"`)
-4. Run `terraform init` + `terraform apply` with the correct `AWS_PROFILE`
-5. Migrate state to S3 (Step 4)
-6. Add GitHub variables: `AWS_ROLE_ARN_QA`, `AWS_ROLE_ARN_PROD`
+### For each environment (qa, prod):
 
-> **Recommended for teams:** Use Terragrunt to manage all three environments with a single DRY configuration instead of repeating these steps manually. See [docs/terragrunt-environments.md](docs/terragrunt-environments.md).
+1. Create `bootstrap-qa` / `bootstrap-prod` IAM users (see [Prerequisites](#2-create-bootstrap-env-user-with-required-permissions))
+2. Fill in `live/qa/account.hcl` and `live/prod/account.hcl` with the correct `account_id`
+3. First-time deploy:
+   ```bash
+   cd live/qa/bootstrap
+   export AWS_PROFILE=bootstrap-qa
+   terragrunt apply --terragrunt-no-auto-init -backend=false
+   terragrunt init -migrate-state
+   ```
+4. Add GitHub variables: `AWS_ROLE_ARN_QA`, `AWS_ROLE_ARN_PROD`
+
+### Deploy all environments at once (after first-time setup)
+
+```bash
+# Run plan across all environments in parallel
+terragrunt run-all plan --terragrunt-working-dir live/
+
+# Apply all environments in dependency order
+terragrunt run-all apply --terragrunt-working-dir live/
+```
+
+> `run-all` respects Terragrunt dependency blocks. All three environments run in parallel since they have no inter-dependencies.
 
 ---
 
@@ -850,7 +638,7 @@ To set up QA and Prod environments, repeat Steps 1–7 for each environment:
 
 **Cause:** S3 bucket names must be globally unique.
 
-**Solution:** Change `company_name` in `terraform.tfvars` to something more unique.
+**Solution:** Change `company_name` in `live/common.hcl` to something more unique.
 
 ### Issue: "AccessDenied" when running terraform apply
 
@@ -863,8 +651,8 @@ To set up QA and Prod environments, repeat Steps 1–7 for each environment:
 **Cause:** Backend configuration incorrect or S3 bucket not accessible.
 
 **Solution:**
-1. Verify backend-config.hcl values
-2. Check S3 bucket exists: `aws s3 ls --profile bootstrap-dev`
+1. Verify `account_id` in `live/dev/account.hcl` matches your actual AWS account
+2. Check S3 bucket exists: `aws s3 ls --profile bootstrap-dev | grep tfstate`
 3. Restore from backup: `cp terraform.tfstate.backup terraform.tfstate`
 
 ### Issue: "Error acquiring the state lock"
@@ -874,15 +662,15 @@ A previous Terraform run was killed mid-execution, leaving a `.tflock` file in S
 **Solution:**
 ```bash
 # Inspect the lock file
-BUCKET=$(terraform output -raw terraform_state_bucket)
-aws s3 cp s3://${BUCKET}/bootstrap/terraform.tfstate.tflock /tmp/lock.json --profile bootstrap-dev
+BUCKET=$(terragrunt output -raw terraform_state_bucket)
+aws s3 cp s3://${BUCKET}/live/dev/bootstrap/terraform.tfstate.tflock /tmp/lock.json --profile bootstrap-dev
 cat /tmp/lock.json
 
 # Remove the lock file (only if the holder's process is confirmed dead)
-aws s3 rm s3://${BUCKET}/bootstrap/terraform.tfstate.tflock --profile bootstrap-dev
+aws s3 rm s3://${BUCKET}/live/dev/bootstrap/terraform.tfstate.tflock --profile bootstrap-dev
 
 # Or use Terraform's built-in unlock
-terraform force-unlock <LOCK_ID>
+terragrunt force-unlock <LOCK_ID>
 ```
 
 For full recovery procedures see [docs/runbooks/state-bucket-recovery.md](docs/runbooks/state-bucket-recovery.md).
@@ -892,7 +680,7 @@ For full recovery procedures see [docs/runbooks/state-bucket-recovery.md](docs/r
 **Cause:** Trust policy doesn't match repository or branch.
 
 **Solution:**
-1. Check trust policy: `terraform output` to see configuration
+1. Check trust policy: `terragrunt output` to see configuration
 2. Verify GitHub org/repo name is correct
 3. Ensure workflow is running from expected branch
 4. Check `enable_branch_restriction` setting
@@ -901,33 +689,29 @@ For full recovery procedures see [docs/runbooks/state-bucket-recovery.md](docs/r
 
 ## State Migration Rollback
 
-If state migration fails or you need to rollback:
+If the first-time state migration fails:
 
 ### Restore Local State
 
 ```bash
-# Stop using S3 backend
-rm -rf .terraform
+# Remove the generated backend.tf and Terragrunt cache
+rm -f backend.tf
+rm -rf .terragrunt-cache
+
+# Restore state file from backup if needed
 cp terraform.tfstate.backup terraform.tfstate
 
-# Re-initialize with local backend
-terraform init
-```
-
-### Re-comment backend.tf
-
-```hcl
-# terraform {
-#   backend "s3" {
-#   }
-# }
+# Re-apply with local state
+terragrunt apply --terragrunt-no-auto-init -backend=false
 ```
 
 ### Verify State
 
 ```bash
-terraform state list
+terragrunt state list
 ```
+
+For detailed recovery procedures see [docs/runbooks/state-bucket-recovery.md](docs/runbooks/state-bucket-recovery.md).
 
 ---
 

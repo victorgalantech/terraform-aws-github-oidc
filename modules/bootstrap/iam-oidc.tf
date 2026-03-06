@@ -14,9 +14,9 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
     "1c58a3a8518e8759bf075b76b750d4f2df264fcd"
   ]
 
-  tags = {
+  tags = merge(var.tags, {
     Name = "github-actions-oidc-provider"
-  }
+  })
 }
 
 # ================================================
@@ -26,23 +26,20 @@ resource "aws_iam_openid_connect_provider" "github_actions" {
 data "aws_iam_policy_document" "github_actions_assume_role" {
   statement {
     effect = "Allow"
- 
+
     principals {
       type        = "Federated"
       identifiers = [aws_iam_openid_connect_provider.github_actions.arn]
     }
- 
-    actions = [
-      "sts:AssumeRoleWithWebIdentity",
-      "sts:TagSession"
-    ]
- 
+
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
- 
+
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
@@ -56,25 +53,8 @@ resource "aws_iam_role" "github_actions" {
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume_role.json
   description        = "GitHub Actions OIDC role for ${var.environment} environment"
 
-  tags = {
+  tags = merge(var.tags, {
     Name = "github-actions-terraform-${var.environment}"
-  }
-}
-
-resource "aws_iam_role_policy" "allow_session_tagging" {
-  name = "AllowSessionTagging"
-  role   = aws_iam_role.github_actions.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid      = "AllowPassSessionTags"
-        Effect   = "Allow"
-        Action   = "sts:TagSession"
-        Resource = "*"
-      }
-    ]
   })
 }
 

@@ -1,52 +1,123 @@
 # ================================================
+# CloudTrail KMS CMK
+#
+# CloudTrail requires an explicit key policy — it cannot use the default
+# key policy alone. The policy must grant CloudTrail:
+#   - kms:GenerateDataKey* (scoped to trail ARN via EncryptionContext)
+#   - kms:DescribeKey
+# The account root retains full administrative access.
+# Project tag is required by the IAM deployment policy condition.
+# ================================================
+
+data "aws_iam_policy_document" "cloudtrail_kms_policy" {
+  count = var.enable_cloudtrail ? 1 : 0
+
+  statement {
+    sid    = "EnableRootAdministration"
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${local.account_id}:root"]
+    }
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AllowCloudTrailEncrypt"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+    actions   = ["kms:GenerateDataKey*"]
+    resources = ["*"]
+    condition {
+      test     = "StringLike"
+      variable = "kms:EncryptionContext:aws:cloudtrail:arn"
+      values   = ["arn:aws:cloudtrail:*:${local.account_id}:trail/*"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:cloudtrail:${local.region}:${local.account_id}:trail/centralized-audit-trail-${var.environment}"]
+    }
+  }
+
+  statement {
+    sid    = "AllowCloudTrailDescribeKey"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+    actions   = ["kms:DescribeKey"]
+    resources = ["*"]
+  }
+
+}
+
+resource "aws_kms_key" "cloudtrail" {
+  count                   = var.enable_cloudtrail ? 1 : 0
+  description             = "KMS key for CloudTrail log encryption - ${var.environment}"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+  policy                  = data.aws_iam_policy_document.cloudtrail_kms_policy[0].json
+
+  tags = merge(var.tags, {
+    Name          = "cloudtrail-kms-${var.environment}"
+    resource-type = "kms-key"
+    Project       = "bootstrap"
+  })
+}
+
+resource "aws_kms_alias" "cloudtrail" {
+  count         = var.enable_cloudtrail ? 1 : 0
+  name          = "alias/${var.company_name}-cloudtrail-${var.environment}"
+  target_key_id = aws_kms_key.cloudtrail[0].key_id
+}
+
+# ================================================
 # CloudTrail for Centralized Audit Logging
 # ================================================
 
-# S3 Bucket with Object Lock (Immutable Audit Logs)
 resource "aws_s3_bucket" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = local.cloudtrail_bucket_name
 
-  # Object Lock must be enabled at bucket creation
   object_lock_enabled = true
 
-  tags = {
+  tags = merge(var.tags, {
     Name          = local.cloudtrail_bucket_name
-    environment   = var.environment
     resource-type = "audit-logs"
-  }
-
-  # Ensure IAM policy is fully applied before attempting bucket operations
-  depends_on = [aws_iam_role_policy_attachment.github_actions_terraform_deployment]
+  })
 }
 
-# Object Lock Configuration (Compliance Mode - Immutable)
 resource "aws_s3_bucket_object_lock_configuration" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id
 
   rule {
     default_retention {
-      mode = "COMPLIANCE"  # Cannot be overridden by anyone, including root
+      mode = "COMPLIANCE"
       days = var.cloudtrail_retention_days
     }
   }
 }
 
-# Encryption at Rest
 resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.cloudtrail[0].arn
     }
     bucket_key_enabled = true
   }
 }
 
-# Versioning (required for Object Lock)
 resource "aws_s3_bucket_versioning" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id
@@ -56,7 +127,6 @@ resource "aws_s3_bucket_versioning" "cloudtrail" {
   }
 }
 
-# Block Public Access
 resource "aws_s3_bucket_public_access_block" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id
@@ -67,7 +137,6 @@ resource "aws_s3_bucket_public_access_block" "cloudtrail" {
   restrict_public_buckets = true
 }
 
-# Lifecycle configuration for non-current versions only
 resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
   count  = var.enable_cloudtrail ? 1 : 0
   bucket = aws_s3_bucket.cloudtrail[0].id
@@ -91,7 +160,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
 data "aws_iam_policy_document" "cloudtrail_bucket_policy" {
   count = var.enable_cloudtrail ? 1 : 0
 
-  # CloudTrail Service Permissions
   statement {
     sid    = "AWSCloudTrailAclCheck"
     effect = "Allow"
@@ -136,7 +204,6 @@ data "aws_iam_policy_document" "cloudtrail_bucket_policy" {
     }
   }
 
-  # Security: Deny non-HTTPS requests
   statement {
     sid    = "DenyInsecureTransport"
     effect = "Deny"
@@ -160,7 +227,6 @@ data "aws_iam_policy_document" "cloudtrail_bucket_policy" {
     }
   }
 
-  # Security: Enforce TLS 1.2 or higher
   statement {
     sid    = "EnforceTLS12OrHigher"
     effect = "Deny"
@@ -203,11 +269,11 @@ resource "aws_cloudtrail" "centralized_audit" {
   s3_bucket_name                = aws_s3_bucket.cloudtrail[0].id
   include_global_service_events = true
   is_multi_region_trail         = true
-  is_organization_trail         = false  # Set to true if using AWS Organizations
+  is_organization_trail         = false
   enable_logging                = true
-  enable_log_file_validation    = true   # Integrity validation
+  enable_log_file_validation    = true
+  kms_key_id                    = aws_kms_key.cloudtrail[0].arn
 
-  # Advanced Event Selectors for comprehensive logging
   advanced_event_selector {
     name = "Log all management events"
     field_selector {
@@ -225,18 +291,6 @@ resource "aws_cloudtrail" "centralized_audit" {
     field_selector {
       field  = "resources.type"
       equals = ["AWS::S3::Object"]
-    }
-  }
-
-  advanced_event_selector {
-    name = "Log all DynamoDB data events"
-    field_selector {
-      field  = "eventCategory"
-      equals = ["Data"]
-    }
-    field_selector {
-      field  = "resources.type"
-      equals = ["AWS::DynamoDB::Table"]
     }
   }
 
@@ -260,10 +314,10 @@ resource "aws_cloudtrail" "centralized_audit" {
     insight_type = "ApiErrorRateInsight"
   }
 
-  tags = {
+  tags = merge(var.tags, {
     Name          = "centralized-audit-trail-${var.environment}"
     resource-type = "audit-trail"
-  }
+  })
 
   depends_on = [aws_s3_bucket_policy.cloudtrail]
 }

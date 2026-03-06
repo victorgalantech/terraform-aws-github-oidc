@@ -1,7 +1,6 @@
 variable "aws_region" {
   description = "AWS region for resources"
   type        = string
-  default     = "eu-west-1"
 }
 
 variable "environment" {
@@ -25,8 +24,12 @@ variable "github_repo" {
 }
 
 variable "company_name" {
-  description = "Company name prefix for S3 buckets"
+  description = "Company name prefix for S3 buckets (lowercase alphanumeric and hyphens only, 2-20 chars)"
   type        = string
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{0,18}[a-z0-9]$", var.company_name))
+    error_message = "company_name must be 2-20 chars, lowercase alphanumeric and hyphens only, no leading/trailing hyphens. S3 bucket names inherit this prefix."
+  }
 }
 
 variable "enable_branch_restriction" {
@@ -57,7 +60,7 @@ variable "tags" {
   description = "Common tags to apply to all resources"
   type        = map(string)
   default = {
-    ManagedBy = "Terraform"
+    ManagedBy = "Terragrunt"
     Purpose   = "GitHubActionsOIDC"
   }
 }

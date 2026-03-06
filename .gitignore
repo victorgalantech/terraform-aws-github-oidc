@@ -1,6 +1,17 @@
 # Local .terraform directories
 **/.terraform/*
 
+# Terraform lock files generated during local init/test runs inside modules/.
+# Lock files are managed by Terragrunt units (live/) — not by the module source.
+**/.terraform.lock.hcl
+
+# Terragrunt cache
+**/.terragrunt-cache/*
+
+# Terragrunt generated backend/provider files
+**/backend.tf
+**/provider.tf
+
 # Local directories
 notes/
 
