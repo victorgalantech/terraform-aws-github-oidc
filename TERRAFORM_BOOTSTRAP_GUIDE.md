@@ -1,10 +1,10 @@
 # Terraform Bootstrap Guide for GitHub Actions OIDC
 
-This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `bootstrap-{env}` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, and S3 state backend - no external dependencies required.
+This guide walks you through bootstrapping your **complete AWS CI/CD infrastructure** using Terraform with the `bootstrap-{env}` user credentials. This single repository provides everything you need: OIDC authentication, IAM roles, and S3 state backend — no external dependencies required.
 
-**Repository:** `terraform-aws-oidc-bootstrap`
+**Repository:** `terraform-aws-github-oidc`
 
-This approach automates the creation of OIDC providers, IAM roles, and S3 state backend, followed by seamless state migration to S3.
+> **Start here:** [README.md](../README.md) — project overview, architecture, and documentation index.
 
 ## 📋 Table of Contents
 
@@ -42,13 +42,14 @@ This approach automates the creation of OIDC providers, IAM roles, and S3 state 
 
 This **single repository** creates your complete CI/CD foundation:
 
-1. **AWS OIDC Identity Provider** - `token.actions.githubusercontent.com`
-2. **IAM Role** - `github-actions-terraform-{environment}` with ABAC session tagging
-3. **IAM Policy** - `TerraformDeploymentPolicy-{environment}` with ARN-based scoping and environment isolation
-4. **S3 Bucket** - `{company}-tfstate-{environment}-{account-id}` (versioned, encrypted, lifecycle rules, public access blocked, TLS 1.2+ enforced)
-5. **CloudTrail** - `centralized-audit-trail-{environment}` (optional, immutable Object Lock, x-day retention, multi-region)
-6. **Automated State Migration** - Seamless local → S3 transition
-7. **Security Model** - OIDC trust policy + ARN-based resource restrictions + `aws:PrincipalTag/environment` cross-environment isolation
+1. **AWS OIDC Identity Provider** — `token.actions.githubusercontent.com`
+2. **IAM Role** — `github-actions-terraform-{environment}` with session tagging support
+3. **IAM Policy** — `TerraformDeploymentPolicy-{environment}` with ARN-based scoping and `aws:PrincipalTag/environment` cross-environment isolation
+4. **S3 State Bucket** — `{company}-tfstate-{environment}-{account-id}` (versioned, KMS-encrypted, S3 native locking, lifecycle rules, public access blocked, TLS 1.2+ enforced)
+5. **CloudTrail** *(optional)* — `centralized-audit-trail-{environment}` (immutable Object Lock, configurable retention, multi-region)
+6. **Automated State Migration** — Seamless local → S3 transition
+
+**Security model:** ARN patterns embed the environment name (`{company}-*-{env}-*`). The dev role cannot reach qa or prod resources at the IAM policy level.
 
 ---
 
@@ -77,9 +78,9 @@ git --version
 The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permissions to:
 - Create and manage OIDC identity providers
 - Create and manage IAM roles and policies
-- Create and manage CloudTrial
+- Create and manage CloudTrail
 - Create and manage S3 for terraform state bucket
-- **Does NOT** include resource provisioning permissions (EC2, Lambda, Bedrock, etc.) or PassRole capability
+- **Does NOT** include resource provisioning permissions (EC2, Lambda, etc.) or PassRole capability
 
 ### Create the User in AWS Console
 
@@ -312,7 +313,7 @@ You'll need:
 Navigate to the bootstrap directory:
 
 ```bash
-cd terraform-aws-oidc-abac-bootstrap/bootstrap
+cd terraform-aws-oidc-bootstrap/bootstrap
 ```
 
 ### 2.1: Copy Example Variables File
@@ -414,7 +415,7 @@ terraform plan -out=tfplan
 ```
 
 **What to verify in the plan:**
-- **10 resources** to be created:
+- **11 resources** to be created:
   - `aws_s3_bucket.terraform_state`
   - `aws_s3_bucket_versioning.terraform_state`
   - `aws_s3_bucket_server_side_encryption_configuration.terraform_state`
@@ -423,7 +424,6 @@ terraform plan -out=tfplan
   - `aws_s3_bucket_lifecycle_configuration.terraform_state`
   - `aws_iam_openid_connect_provider.github_actions`
   - `aws_iam_policy.terraform_deployment`
-  - `aws_iam_role_policy.allow_session_tagging`
   - `aws_iam_role.github_actions`
   - `aws_iam_role_policy_attachment.github_actions_terraform_deployment`
 
@@ -661,7 +661,6 @@ data.aws_region.current
 aws_iam_openid_connect_provider.github_actions
 aws_iam_policy.terraform_deployment
 aws_iam_role.github_actions
-aws_iam_role_policy.allow_session_tagging[0]
 aws_iam_role_policy_attachment.github_actions_terraform_deployment
 aws_s3_bucket.terraform_state
 aws_s3_bucket_lifecycle_configuration.terraform_state
@@ -718,45 +717,7 @@ aws iam simulate-principal-policy \
 # Should show: EvalDecision: allowed
 ```
 
-<!-- ### 5.5: Monitor CloudTrail Logs (If Enabled)
-
-If you enabled CloudTrail, you can monitor OIDC authentication attempts:
-
-```bash
-# Query recent OIDC authentication events
-aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
-  --max-results 10 \
-  --profile bootstrap-dev
-
-# Check CloudTrail status
-aws cloudtrail get-trail-status \
-  --name github-actions-oidc-dev \
-  --profile bootstrap-dev
-
-# View CloudTrail configuration
-aws cloudtrail get-trail \
-  --name github-actions-oidc-dev \
-  --profile bootstrap-dev
-```
-
-**What CloudTrail Logs:**
-- ✅ Every OIDC `AssumeRoleWithWebIdentity` authentication attempt
-- ✅ All S3 operations on the Terraform state bucket (management + data events)
-- ✅ All Lambda function invocations (data events)
-- ✅ Full audit trail with GitHub workflow details (repository, branch, commit SHA)
-- ✅ CloudTrail Insights for anomaly detection (unusual API call/error rates)
-
-**CloudTrail Security Features:**
-- 🔒 **Object Lock COMPLIANCE mode** - Logs cannot be deleted for 90 days (even by root)
-- ✅ **Log file validation** - SHA-256 digests for integrity verification
-- ✅ **Multi-region trail** - Captures activity across all AWS regions
-- ✅ **Encryption at rest** - AES-256 encryption
-- ✅ **TLS 1.2+ enforcement** - Secure log delivery
-
-For detailed CloudTrail setup and querying, see [CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md) and [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md).
-
---- -->
+---
 
 ## Step 6: Configure GitHub Variables
 
@@ -817,7 +778,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Configure AWS credentials with ABAC
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
@@ -829,22 +790,16 @@ jobs:
       
       - name: Verify AWS credentials
         run: |
-          echo "Testing AWS OIDC authentication with ABAC..."
+          echo "Testing AWS OIDC authentication..."
           aws sts get-caller-identity
           echo "✅ Successfully authenticated with AWS using OIDC!"
       
       - name: Test S3 access
         run: |
           echo "Testing S3 access..."
-          aws s3 ls s3://$(cat bootstrap/terraform.tfvars | grep company_name | cut -d'"' -f2)-tfstate-dev-* || echo "Bucket access test"
-      
-        run: |
-      
-      - name: Test ABAC isolation (should fail for other projects)
-        run: |
-          echo "Testing ABAC project isolation..."
-          echo "Attempting to access non-existent project path (should be denied by ABAC)..."
-          aws s3 ls s3://$(cat bootstrap/terraform.tfvars | grep company_name | cut -d'"' -f2)-tfstate-dev-*/other-project/ || echo "✅ ABAC isolation working - access denied as expected"
+          COMPANY=$(grep company_name bootstrap/terraform.tfvars | cut -d'"' -f2)
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          aws s3 ls s3://${COMPANY}-tfstate-dev-${ACCOUNT}/ && echo "✅ S3 access successful"
 ```
 
 ### 7.2: Commit and Push
@@ -876,39 +831,16 @@ git push origin main
 
 ## Multi-Environment Setup
 
-To set up QA and Prod environments:
-1. Create the `bootstrap-qa` and `bootstrap-prod` users in their respective AWS accounts (see [Prerequisites](#2-create-bootstrap-dev-user-with-required-permissions))
-2. Configure AWS CLI profiles for each environment
-3. Follow Steps 1-7 with environment-specific configurations
+To set up QA and Prod environments, repeat Steps 1–7 for each environment:
 
-### Create Environment-Specific tfvars
+1. Create `bootstrap-qa` / `bootstrap-prod` IAM users in their AWS accounts (see [Prerequisites](#2-create-bootstrap-env-user-with-required-permissions))
+2. Configure AWS CLI profiles: `aws configure --profile bootstrap-qa`
+3. Copy and edit `terraform.tfvars` — change `environment = "qa"` (or `"prod"`)
+4. Run `terraform init` + `terraform apply` with the correct `AWS_PROFILE`
+5. Migrate state to S3 (Step 4)
+6. Add GitHub variables: `AWS_ROLE_ARN_QA`, `AWS_ROLE_ARN_PROD`
 
-```bash
-# QA environment
-cd bootstrap
-cp terraform.tfvars terraform-qa.tfvars
-
-# Edit terraform-qa.tfvars
-sed -i 's/environment = "dev"/environment = "qa"/' terraform-qa.tfvars
-```
-
-### Apply for Each Environment
-
-```bash
-# QA
-terraform workspace new qa || terraform workspace select qa
-terraform apply -var-file=terraform-qa.tfvars
-
-# Prod
-terraform workspace new prod || terraform workspace select prod
-terraform apply -var-file=terraform-prod.tfvars
-```
-
-### Update GitHub Variables
-
-Set additional variables:
-- `AWS_ROLE_ARN_QA`
-- `AWS_ROLE_ARN_PROD`
+> **Recommended for teams:** Use Terragrunt to manage all three environments with a single DRY configuration instead of repeating these steps manually. See [docs/terragrunt-environments.md](docs/terragrunt-environments.md).
 
 ---
 
@@ -937,17 +869,23 @@ Set additional variables:
 
 ### Issue: "Error acquiring the state lock"
 
+A previous Terraform run was killed mid-execution, leaving a `.tflock` file in S3.
 
 **Solution:**
 ```bash
-# View lock info
-  --table-name terraform-state-locks-dev \
-  --key '{"LockID": {"S": "yourcompany-tfstate-dev-{AWS-ACCOUNT-ID}/bootstrap/terraform.tfstate"}}' \
-  --profile bootstrap-dev
+# Inspect the lock file
+BUCKET=$(terraform output -raw terraform_state_bucket)
+aws s3 cp s3://${BUCKET}/bootstrap/terraform.tfstate.tflock /tmp/lock.json --profile bootstrap-dev
+cat /tmp/lock.json
 
-# Force unlock (use with caution)
+# Remove the lock file (only if the holder's process is confirmed dead)
+aws s3 rm s3://${BUCKET}/bootstrap/terraform.tfstate.tflock --profile bootstrap-dev
+
+# Or use Terraform's built-in unlock
 terraform force-unlock <LOCK_ID>
 ```
+
+For full recovery procedures see [docs/runbooks/state-bucket-recovery.md](docs/runbooks/state-bucket-recovery.md).
 
 ### Issue: GitHub Actions workflow fails with "Not authorized to perform sts:AssumeRoleWithWebIdentity"
 
@@ -995,38 +933,33 @@ terraform state list
 
 ## Next Steps
 
-### 1. Review Security Architecture
-Understand the defense-in-depth security model:
-- See [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md)
-- Learn about ABAC implementation
-- Understand project isolation
-- Review threat model and defenses
+### 1. Review Architecture Decisions
+Understand why the project is built the way it is:
+- [ADR-0001](docs/adr/0001-arn-based-isolation-vs-abac.md) — ARN-based isolation vs ABAC resource tags
+- [ADR-0002](docs/adr/0002-s3-native-locking-vs-dynamodb.md) — S3 native locking vs DynamoDB
+- [ADR-0003](docs/adr/0003-organisation-wide-oidc-role.md) — Organisation-wide OIDC role (accepted risk)
 
-### 2. Set Up CloudTrail (Enabled by Default)
-For audit logging and compliance:
-- See [CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md)
-- Monitor all OIDC authentications and API calls
-- Meet regulatory requirements (SOC 2, ISO 27001, PCI-DSS)
-- Immutable audit trail with Object Lock
+### 2. CloudTrail (Optional)
+Set `enable_cloudtrail = true` in `terraform.tfvars`. CloudTrail logs every `AssumeRoleWithWebIdentity` call and all API operations, stored in an S3 bucket with Object Lock (immutable for `cloudtrail_retention_days`).
 
 ### 3. Use This Bootstrap for Your Applications
-Now that your foundation is set, deploy your applications with ABAC isolation:
 
-**For each new project (e.g., marketing-ai, dataplatform):**
+For each new project (e.g., `marketing-ai`, `dataplatform`):
 
 1. **Create project repository** with Terraform code
 2. **Configure backend** to use the shared state bucket:
    ```hcl
    terraform {
      backend "s3" {
-       bucket   = "yourcompany-tfstate-dev-123456"
-       key      = "marketing-ai/terraform.tfstate"
-       region   = "eu-west-1"
-       encrypt  = true
+       bucket       = "yourcompany-tfstate-dev-123456"
+       key          = "marketing-ai/terraform.tfstate"
+       region       = "eu-west-1"
+       encrypt      = true
+       use_lockfile = true
      }
    }
    ```
-3. **Pass session tags** in the GitHub Actions workflow (required for environment isolation):
+3. **Pass session tags** in the GitHub Actions workflow:
    ```yaml
    - uses: aws-actions/configure-aws-credentials@v4
      with:
@@ -1037,48 +970,17 @@ Now that your foundation is set, deploy your applications with ABAC isolation:
    ```
 4. **Expand `iam-policies.tf`** to add permissions for the new project's services, scoped by ARN and protected by `aws:PrincipalTag/environment`.
 
-**Supported Services:**
-- **Lambda functions** - Serverless applications
-- **ECS/Fargate** - Containerized workloads
-- **Glue jobs** - Data pipelines
-- **Bedrock** - AI/ML applications
-- **S3, RDS, etc.** - Any Terraform-managed infrastructure
+**Supported Services:** Lambda, ECS/Fargate, Glue, Bedrock, RDS, API Gateway — any Terraform-managed AWS infrastructure.
 
 ### 4. Expand to QA and Prod
-Replicate this setup to other environments:
-- Follow [Multi-Environment Setup](#multi-environment-setup)
-- Use environment-specific `terraform.tfvars` files
+- Follow [Multi-Environment Setup](#multi-environment-setup) to repeat the bootstrap for each environment
+- Or adopt Terragrunt for a DRY multi-env setup: [docs/terragrunt-environments.md](docs/terragrunt-environments.md)
 
 ### 5. Set Up Branch Protection
 Configure GitHub repository settings:
-- Require pull request reviews before merging to main
+- Require pull request reviews before merging to `main`
 - Enforce status checks (successful CI/CD)
 - Require branches to be up to date before merging
-
-### 6. Expand TerraformDeploymentPolicy
-As your needs grow, add permissions to `iam-policies.tf` scoped by ARN and protected by `aws:PrincipalTag/environment`:
-```hcl
-# Add to data "aws_iam_policy_document" "terraform_deployment" in iam-policies.tf
-statement {
-  sid    = "LambdaManagement"
-  effect = "Allow"
-  actions = [
-    "lambda:CreateFunction",
-    "lambda:UpdateFunctionCode",
-    "lambda:UpdateFunctionConfiguration",
-    # ... more Lambda permissions
-  ]
-  # Scope to company-prefixed function names
-  resources = ["arn:aws:lambda:*:*:function:${var.company_name}-*"]
-
-  # Prevent dev pipeline from modifying prod functions
-  condition {
-    test     = "StringEquals"
-    variable = "aws:PrincipalTag/environment"
-    values   = [var.environment]
-  }
-}
-```
 
 ---
 
@@ -1086,47 +988,47 @@ statement {
 
 ### 1. State File Security
 
-- ✅ **Never commit** `terraform.tfstate` to git
+- ✅ **Never commit** `terraform.tfstate` to git (already in `.gitignore`)
 - ✅ **Enable versioning** on S3 state bucket (already done by bootstrap)
 - ✅ **Enable encryption** on S3 state bucket (already done by bootstrap)
 - ✅ **Backup state files** before major changes
 
 ### 2. Access Control
 
-- ✅ Use separate `bootstrap-dev` user per environment
+- ✅ Use separate `bootstrap-{env}` user per environment
 - ✅ Rotate access keys regularly
-- ✅ Enable MFA on bootstrap-dev user
-- ✅ Use CloudTrail to monitor bootstrap-dev activities
+- ✅ Enable MFA on bootstrap-{env} user
+- ✅ Use CloudTrail to monitor bootstrap-{env} activities
 - ✅ Always pass `Project` and `environment` session tags in workflows via `role-session-tags`
 - ✅ Tag all resources with `Project`, `environment`, `ManagedBy`
 
 ### 3. Infrastructure Changes
 
 - ✅ Always run `terraform plan` before `apply`
-- ✅ Review plan output carefully
+- ✅ Review plan output carefully — watch for unexpected deletions
 - ✅ Use feature branches for infrastructure changes
-- ✅ Peer review Terraform code changes
+- ✅ Peer review Terraform code changes via PR
 
 ### 4. State Locking
 
-- ✅ Never disable state locking
-- ✅ Use `terraform force-unlock` only as last resort
+- ✅ Never disable state locking (`use_lockfile = true` in backend config)
+- ✅ Use `terraform force-unlock` only when the holder's process is confirmed dead
+- ✅ See [docs/runbooks/state-bucket-recovery.md](docs/runbooks/state-bucket-recovery.md) for recovery steps
 
 ---
 
 ## Summary
 
-You've successfully:
+You have successfully:
 
 - ✅ Created OIDC provider, IAM role, and deployment policy with Terraform
 - ✅ Implemented ARN-based policy scoping + `aws:PrincipalTag/environment` cross-environment isolation
 - ✅ Configured immutable CloudTrail audit logging (Object Lock COMPLIANCE mode, optional)
-- ✅ Migrated Terraform state from local to S3
+- ✅ Migrated Terraform state from local to S3 with native locking (no DynamoDB)
 - ✅ Configured GitHub variables for OIDC authentication
-- ✅ Tested GitHub Actions workflow with AWS access and environment session tags
-- ✅ Implemented defense-in-depth security: OIDC trust policy + ARN scope + principal tag isolation
+- ✅ Tested GitHub Actions workflow with AWS access
 
-**Your infrastructure is now fully automated, secure, and ready for multi-project CI/CD deployments!**
+**Your infrastructure is now fully automated, secure, and ready for multi-project CI/CD deployments.**
 
 ---
 
@@ -1134,9 +1036,7 @@ You've successfully:
 
 - [Terraform S3 Backend](https://developer.hashicorp.com/terraform/language/settings/backends/s3)
 - [AWS OIDC with GitHub Actions](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services)
-- [AWS ABAC Documentation](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction_attribute-based-access-control.html)
 - [S3 Object Lock](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html)
-- [OIDC_SETUP_GUIDE.md](OIDC_SETUP_GUIDE.md) - Manual setup alternative
-- [AWS_IAM_POLICIES.md](AWS_IAM_POLICIES.md) - IAM policy reference with ABAC examples
-- [SECURITY_ARCHITECTURE.md](SECURITY_ARCHITECTURE.md) - Defense-in-depth security model
-- [CLOUDTRAIL_SETUP.md](CLOUDTRAIL_SETUP.md) - Audit logging setup
+- [docs/adr/](docs/adr/) — Architecture Decision Records
+- [docs/runbooks/state-bucket-recovery.md](docs/runbooks/state-bucket-recovery.md) — State recovery runbook
+- [docs/terragrunt-environments.md](docs/terragrunt-environments.md) — Multi-environment Terragrunt guide

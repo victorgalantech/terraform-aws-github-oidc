@@ -25,3 +25,8 @@ terraform.rc
 
 # Ignore backend config files (generated dynamically)
 backend-config.hcl
+
+# Ignore local plan files and output artifacts
+tfplan
+tfplan-*.binary
+bootstrap-outputs.txt

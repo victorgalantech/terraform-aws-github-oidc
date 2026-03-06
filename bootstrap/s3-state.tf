@@ -8,7 +8,6 @@ resource "aws_s3_bucket" "terraform_state" {
   tags = {
     Name          = local.tfstate_bucket_name
     resource-type = "state-backend"
-    xxxx = "xxxx"
   }
 
   # Ensure IAM policy is fully applied before attempting bucket operations
@@ -23,12 +22,24 @@ resource "aws_s3_bucket_versioning" "terraform_state" {
   }
 }
 
+resource "aws_kms_key" "terraform_state" {
+  description             = "KMS key for Terraform state bucket encryption - ${var.environment}"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  tags = {
+    Name          = "terraform-state-kms-${var.environment}"
+    resource-type = "kms-key"
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" {
   bucket = aws_s3_bucket.terraform_state.id
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+        sse_algorithm     = "aws:kms"
+        kms_master_key_id = aws_kms_key.terraform_state.arn
     }
   }
 }
@@ -119,5 +130,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
+
+    abort_incomplete_multipart_upload {
+  days_after_initiation = 7
+}
   }
+}
+
+
+resource "aws_s3_bucket_logging" "terraform_state" {
+  bucket        = aws_s3_bucket.terraform_state.id
+  target_bucket = aws_s3_bucket.terraform_state.id
+  target_prefix = "access-logs/"
 }

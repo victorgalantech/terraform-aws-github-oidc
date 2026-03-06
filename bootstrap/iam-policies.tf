@@ -2,16 +2,14 @@
 # Terraform Deployment IAM Policy
 #
 # Security model:
-#   1. OIDC trust policy  - only GitHub Actions from allowed repos/branches can assume this role
-#   2. ARN-based scope    - all S3 actions restricted to arn:aws:s3:::${company_name}-*
-#   3. PrincipalTag check - aws:PrincipalTag/environment (injected by the workflow via role-session-tags)
-#                           prevents a dev pipeline from creating or modifying prod resources
+#   1. OIDC trust policy - only GitHub Actions from allowed repos/branches can assume this role.
+#   2. ARN-based scope   - all S3 actions are strictly isolated to the specific environment
+#                          using ARNs (e.g., arn:aws:s3:::company-*-dev-*).
+#                          The environment is embedded in the bucket name, not a session tag.
 # ================================================
 
 data "aws_iam_policy_document" "terraform_deployment" {
   # S3: List the state bucket (required by Terraform backend init and plan)
-  # Scoped to this environment's state bucket by ARN.
-  # PrincipalTag/environment ensures the pipeline only accesses its own environment bucket.
   statement {
     sid    = "S3StateBucketList"
     effect = "Allow"
@@ -19,17 +17,10 @@ data "aws_iam_policy_document" "terraform_deployment" {
     actions = ["s3:ListBucket"]
 
     resources = ["arn:aws:s3:::${var.company_name}-tfstate-${var.environment}-*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:PrincipalTag/environment"
-      values   = [var.environment]
-    }
   }
 
   # S3: Read bucket metadata (used by terraform import, plan refresh, and state reads)
-  # Scoped to company-prefixed buckets. No environment condition - read operations
-  # are safe and required for terraform import to function correctly.
+  # Scoped strictly to this environment to prevent reading prod configurations/policies.
   statement {
     sid    = "S3BucketMetadataRead"
     effect = "Allow"
@@ -53,7 +44,10 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "s3:GetAccelerateConfiguration"
     ]
 
-    resources = ["arn:aws:s3:::${var.company_name}-*"]
+    resources = [
+      "arn:aws:s3:::${var.company_name}-*-${var.environment}-*",
+      "arn:aws:s3:::${var.company_name}-*-${var.environment}"
+    ]
   }
 
   # S3: List all buckets (required for Terraform state list operations)
@@ -84,8 +78,7 @@ data "aws_iam_policy_document" "terraform_deployment" {
   }
 
   # S3: Create buckets and apply initial tags
-  # Scoped to company-prefixed ARNs.
-  # PrincipalTag/environment prevents creating prod buckets from a dev pipeline.
+  # Scoped strictly to the environment by ARN.
   statement {
     sid    = "S3BucketCreate"
     effect = "Allow"
@@ -95,18 +88,14 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "s3:PutBucketTagging"
     ]
 
-    resources = ["arn:aws:s3:::${var.company_name}-*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:PrincipalTag/environment"
-      values   = [var.environment]
-    }
+    resources = [
+      "arn:aws:s3:::${var.company_name}-*-${var.environment}-*",
+      "arn:aws:s3:::${var.company_name}-*-${var.environment}"
+    ]
   }
 
   # S3: Manage existing buckets (versioning, encryption, policies, lifecycle, etc.)
-  # Scoped to company-prefixed ARNs.
-  # PrincipalTag/environment prevents cross-environment modifications.
+  # Scoped strictly to the environment by ARN.
   statement {
     sid    = "S3BucketManage"
     effect = "Allow"
@@ -123,13 +112,10 @@ data "aws_iam_policy_document" "terraform_deployment" {
       "s3:PutBucketObjectLockConfiguration"
     ]
 
-    resources = ["arn:aws:s3:::${var.company_name}-*"]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:PrincipalTag/environment"
-      values   = [var.environment]
-    }
+    resources = [
+      "arn:aws:s3:::${var.company_name}-*-${var.environment}-*",
+      "arn:aws:s3:::${var.company_name}-*-${var.environment}"
+    ]
   }
 
   # IAM: Full management for OIDC providers, roles, and policies

@@ -26,14 +26,13 @@ on:
         type: choice
         options: [plan, apply]
 
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
-  issues: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
 
 env:
-  TF_VERSION: '1.10.0'
   AWS_REGION: 'eu-west-1'
   WORKING_DIR: './bootstrap'
 
@@ -44,6 +43,9 @@ jobs:
   detect-environment:
     name: Detect Environment
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       environment: ${{ steps.detect.outputs.environment }}
       env_upper:   ${{ steps.detect.outputs.env_upper }}
@@ -54,6 +56,8 @@ jobs:
             ENV="${{ github.event.inputs.environment }}"
           elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             ENV="prod"
+          elif [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
+            ENV="qa"
           else
             ENV="dev"
           fi
@@ -68,12 +72,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-environment
     if: github.event_name != 'schedule'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read Terraform version
+        id: tf-version
+        run: echo "version=$(cat ${{ env.WORKING_DIR }}/.terraform-version | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ steps.tf-version.outputs.version }}
 
       - name: Terraform Format Check
         id: fmt
@@ -127,6 +139,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate
     if: github.event_name != 'schedule'
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -172,6 +188,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [detect-environment, validate, security-scan]
     if: github.event_name != 'schedule'
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
     env:
       ENV: ${{ needs.detect-environment.outputs.environment }}
     outputs:
@@ -179,9 +200,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read Terraform version
+        id: tf-version
+        run: echo "version=$(cat ${{ env.WORKING_DIR }}/.terraform-version | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ steps.tf-version.outputs.version }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -236,19 +261,6 @@ jobs:
           EOF
         working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Reconcile state bucket
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
-          BUCKET="${{ vars.COMPANY_NAME }}-tfstate-${{ env.ENV }}-${ACCOUNT_ID}"
-          echo "Reconciling state bucket: ${BUCKET}"
-          terraform state rm aws_s3_bucket.terraform_state 2>/dev/null || true
-          if terraform import aws_s3_bucket.terraform_state "${BUCKET}"; then
-            echo "State bucket successfully imported"
-          else
-            echo "Bucket does not exist yet - will be created by plan/apply"
-          fi
-        working-directory: ${{ env.WORKING_DIR }}
-
       - name: Terraform Plan
         id: plan
         run: |
@@ -258,9 +270,9 @@ jobs:
             -no-color
         working-directory: ${{ env.WORKING_DIR }}
 
-      - name: Convert plan to JSON
+      - name: Show plan output
         if: steps.plan.outputs.exitcode == '2'
-        run: terraform show -json tfplan-${{ env.ENV }}.binary > tfplan-${{ env.ENV }}.json
+        run: terraform show -no-color tfplan-${{ env.ENV }}.binary > /tmp/plan-output.txt
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Upload plan artifact
@@ -277,22 +289,13 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const plan = JSON.parse(fs.readFileSync('${{ env.WORKING_DIR }}/tfplan-${{ env.ENV }}.json', 'utf8'));
-            const changes = plan.resource_changes || [];
-            const toCreate = changes.filter(r => r.change.actions.includes('create')).length;
-            const toUpdate = changes.filter(r => r.change.actions.includes('update')).length;
-            const toDelete = changes.filter(r => r.change.actions.includes('delete')).length;
+            const output = fs.readFileSync('/tmp/plan-output.txt', 'utf8');
+            const truncated = output.length > 60000 ? output.slice(-60000) : output;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `#### 📋 Terraform Plan - ${{ env.ENV }}
-
-            **Changes:** ➕ ${toCreate} &nbsp; 🔄 ${toUpdate} &nbsp; ➖ ${toDelete}
-
-            ⚠️ Review carefully before approving deployment.
-
-            *Run: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*`
+              body: `<details><summary>📋 Terraform Plan — ${{ env.ENV }} (click to expand)</summary>\n\n\`\`\`hcl\n${truncated}\n\`\`\`\n\n</details>\n\n*Run: [${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*`
             })
 
       - name: Fail on plan error
@@ -306,14 +309,24 @@ jobs:
     name: Terraform Apply
     runs-on: ubuntu-latest
     needs: [detect-environment, plan]
+    if: needs.plan.outputs.exitcode == '2'
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
     env:
       ENV: ${{ needs.detect-environment.outputs.environment }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read Terraform version
+        id: tf-version
+        run: echo "version=$(cat ${{ env.WORKING_DIR }}/.terraform-version | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ steps.tf-version.outputs.version }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -371,15 +384,6 @@ jobs:
           path: ${{ env.WORKING_DIR }}/outputs.json
           retention-days: 30
 
-      # - name: Verify CloudTrail logging
-      #   if: success()
-      #   run: |
-      #     aws cloudtrail lookup-events \
-      #       --lookup- attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
-      #       --max-results 5 \
-      #       --query 'Events[*].[EventTime,Username,CloudTrailEvent]' \
-      #       --output table || echo "No recent OIDC events found (normal for first deployment)"
-
       - name: Comment PR - Deployment Success
         if: success() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
@@ -401,6 +405,11 @@ jobs:
     name: Drift Detection (${{ matrix.environment }})
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule'
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+      issues: write
     strategy:
       fail-fast: false
       matrix:
@@ -412,9 +421,13 @@ jobs:
         id: prep
         run: echo "ENV_UPPER=$(echo ${{ matrix.environment }} | tr '[:lower:]' '[:upper:]')" >> $GITHUB_OUTPUT
 
+      - name: Read Terraform version
+        id: tf-version
+        run: echo "version=$(cat ${{ env.WORKING_DIR }}/.terraform-version | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ steps.tf-version.outputs.version }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4

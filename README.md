@@ -1,420 +1,174 @@
-# Terraform AWS OIDC Bootstrap 🔐
+# Terraform AWS OIDC Bootstrap
 
 [![AWS](https://img.shields.io/badge/AWS-IAM%20%7C%20OIDC-FF9900?logo=amazon-aws)](https://aws.amazon.com/)
-[![Terraform](https://img.shields.io/badge/Terraform-1.6%2B-7B42BC?logo=terraform)](https://www.terraform.io/)
-[![Security](https://img.shields.io/badge/Security-ABAC%20%7C%20Defense--in--Depth-green)](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction_attribute-based-access-control.html)
+[![Terraform](https://img.shields.io/badge/Terraform-1.10%2B-7B42BC?logo=terraform)](https://www.terraform.io/)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**Enterprise-grade Terraform bootstrap for GitHub Actions on AWS with Attribute-Based Access Control (ABAC), immutable audit logging, and defense-in-depth security.**
-
-This repository provides everything you need to bootstrap your AWS CI/CD infrastructure with:
-- 🔐 **Keyless authentication** - OpenID Connect (OIDC) with no stored credentials
-- 🏷️ **ABAC isolation** - Project-level access control using session tags
-- 🔒 **Immutable audit trail** - CloudTrail with Object Lock COMPLIANCE mode
-- 🛡️ **Defense-in-depth** - 7 layers of security controls
-- ✅ **Compliance ready** - SOC 2, ISO 27001, PCI-DSS, GDPR aligned
+Bootstraps the complete AWS CI/CD foundation for GitHub Actions: keyless OIDC authentication, scoped IAM roles, encrypted S3 state backend, and optional CloudTrail audit logging — all managed by Terraform.
 
 ---
 
-## 📋 Table of Contents
+## What It Creates
 
-- [What This Solves](#-what-this-solves)
-- [Prerequisites](#-prerequisites)
-- [Quick Start](#-quick-start)
-- [Documentation](#-documentation)
-- [Architecture](#-architecture)
-- [Contributing](#-contributing)
+Per AWS account (run once per environment):
 
----
+| Resource | Name pattern | Purpose |
+|---|---|---|
+| OIDC Identity Provider | `token.actions.githubusercontent.com` | Keyless GitHub Actions auth |
+| IAM Role | `github-actions-terraform-{env}` | CI/CD role assumed by workflows |
+| IAM Policy | `TerraformDeploymentPolicy-{env}` | Scoped permissions (ARN + env isolation) |
+| S3 State Bucket | `{company}-tfstate-{env}-{account-id}` | Versioned, KMS-encrypted Terraform state |
+| CloudTrail *(optional)* | `centralized-audit-trail-{env}` | Immutable OIDC + API audit logs |
 
-## 🎯 What This Solves
-
-### The Problem
-
-Setting up GitHub Actions with AWS traditionally requires:
-- ❌ Creating IAM users with access keys
-- ❌ Storing long-lived credentials in GitHub Secrets
-- ❌ Manual S3 state backend setup
-- ❌ Manual credential rotation
-- ❌ Security risk if credentials are leaked
-- ❌ No project isolation in multi-project environments
-- ❌ Risk of cross-project state tampering
-- ❌ Mutable audit logs that can be deleted
-
-### The Solution (This Repository)
-
-#### **Security & Access Control**
-- ✅ **No stored credentials** - OIDC generates temporary tokens per workflow run
-- ✅ **ABAC (Attribute-Based Access Control)** - Project isolation using session tags
-- ✅ **Project isolation** - Each project can only access their own state files
-- ✅ **Environment separation** - Dev/QA/Prod completely isolated
-- ✅ **Bootstrap-only destructive ops** - Only infrastructure project can delete shared resources
-- ✅ **Immutable audit trail** - CloudTrail with Object Lock (90-day tamper-proof logs)
-
-#### **Infrastructure & Automation**
-- ✅ **State migration included** - Seamlessly moves from local to S3 backend
-- ✅ **S3 versioning** - State recovery from accidental deletions
-- ✅ **Encryption at rest** - AES-256 encryption for state files and audit logs
-- ✅ **Complete bootstrap** - Everything needed for Terraform CI/CD in one place
-
-#### **Compliance & Best Practices**
-- ✅ **Defense-in-depth** - 7 security layers protecting your infrastructure
-- ✅ **AWS Well-Architected** - Security, reliability, and operational excellence
-- ✅ **Compliance ready** - SOC 2, ISO 27001, PCI-DSS, GDPR mappings included
-- ✅ **Modern best practice** - Recommended by AWS and GitHub
+**Security model:** environment name is embedded in every resource ARN. The dev role cannot touch QA or prod resources — enforced by IAM policy, not by convention.
 
 ---
 
-## ⚠️ Prerequisites
+## Prerequisites
 
-- **AWS account(s)** - one per environment (dev, qa, prod)
-- **GitHub repository** with Actions enabled
-- **AWS CLI** installed and configured
-- **Admin access** to AWS console (for initial `bootstrap-{env}` user creation) *Explain in [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md)
-- **Permissions** to create IAM users, identity providers, and roles
+- Terraform `>= 1.10.0` (for S3 native state locking — no DynamoDB needed)
+- AWS CLI `>= 2.x` configured with a bootstrap IAM user
+- GitHub repository with Actions enabled
 
----
-
-## 🚀 Quick Start
-
-### Terraform Bootstrap 🏗️
-
-**Time:** ~10 minutes per AWS account
-
-👉 **Follow [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md) for complete instructions**
-
-**Summary:**
-1. **Create bootstrap-{env} IAM user** (one-time manual setup per account)
-2. **Configure Terraform variables** (`terraform.tfvars`) - including ABAC settings
-3. **Run Terraform** to create OIDC provider, ABAC policies, CloudTrail, and S3 backend
-4. **Migrate state** to S3 backend automatically
-5. **Configure GitHub Variables** with role ARN
-6. **Test workflow with ABAC** - done!
-7. **Delete bootstrap-{env} IAM user** Optional but recommended
-
-**What Gets Created:**
-- ✅ OIDC provider with session tagging support
-- ✅ IAM roles with ABAC conditions (projectID + environment isolation)
-- ✅ S3 state bucket (versioned, encrypted, public access blocked, TLS 1.2+ enforced)
-- ✅ CloudTrail with Object Lock (immutable 90-day audit logs)
-- ✅ Defense-in-depth security with 7 protection layers
-
-**Benefits:**
-- ✅ Fully automated infrastructure creation
-- ✅ Project isolation via ABAC - no cross-project access
-- ✅ Immutable audit trail for compliance
-- ✅ Repeatable across environments
-- ✅ Infrastructure as Code - version controlled
-- ✅ Idempotent - safe to run multiple times
-
-> **⚠️ Important**: Complete setup and testing in **dev** environment before replicating to QA and Prod.
+See [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md) for how to create the bootstrap IAM user and its required permissions.
 
 ---
 
-## 🤖 GitHub Actions CI/CD
+## Quick Start
 
-**Automated deployment workflows included!**
+**~10 minutes per environment.** Test dev before replicating to qa and prod.
 
-### Workflows Available
-
-1. **🚀 Terraform Deploy** - Automated deployment pipeline
-   - Auto-deploys on push to `main` (prod) or `develop` (dev)
-   - PR validation with plan preview
-   - ABAC session tags automatically passed
-   - Security scanning (Checkov, tfsec)
-   - Compliance checks
-   - Manual deployment option
-
-2. **🔍 PR Quality Checks** - Pull request validation
-   - Terraform formatting and validation
-   - Security scanning
-   - Cost estimation
-   - Documentation generation
-   - Sensitive data detection
-
-3. **📊 Drift Detection** - Infrastructure monitoring
-   - Daily automated drift detection
-   - Auto-creates GitHub issues
-   - Manual on-demand checks
-   - Drift reports as artifacts
-
-### Quick Start
-
-**1. Initial Bootstrap (Manual - First Time Only):**
+**1. Clone and configure:**
 ```bash
 cd bootstrap/
-terraform init
-terraform apply -var="environment=dev"
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars — set company_name, github_org, environment
 ```
 
-**2. Configure GitHub Variables:**
+**2. Deploy:**
+```bash
+export AWS_PROFILE=bootstrap-dev
+terraform init
+terraform apply
+```
+
+**3. Migrate state to S3:**
+```bash
+BUCKET=$(terraform output -raw terraform_state_bucket)
+terraform init -migrate-state -backend-config="bucket=${BUCKET}" \
+  -backend-config="key=bootstrap/terraform.tfstate" \
+  -backend-config="region=eu-west-1"
+```
+
+**4. Set GitHub variables:**
 
 Go to **Settings → Secrets and variables → Actions → Variables** and add:
-- `AWS_ROLE_ARN_DEV` = Output from step 1
-- `AWS_ROLE_ARN_QA` = (repeat for QA account)
-- `AWS_ROLE_ARN_PROD` = (repeat for Prod account)
+- `AWS_ROLE_ARN_DEV` — from `terraform output github_actions_role_arn`
+- `COMPANY_NAME` — your company prefix
 
-**3. Deploy via GitHub Actions:**
-```bash
-git add .
-git commit -m "feat: enable ABAC infrastructure"
-git push origin develop  # Auto-deploys to dev
-```
+**5. Push to a branch — CI/CD runs automatically.**
 
-**👉 Full deployment guide:** [.github/DEPLOYMENT_GUIDE.md](.github/DEPLOYMENT_GUIDE.md)
+> Full step-by-step with verification commands: [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md)
 
 ---
 
-## 📚 Documentation
+## Architecture
 
-### Complete Guides
+```
+GitHub Actions Workflow
+        │
+        │ 1. Request OIDC JWT (no stored credentials)
+        ↓
+GitHub Token Service → signs JWT with repo, branch, actor claims
+        │
+        │ 2. Exchange JWT for temporary AWS credentials
+        ↓
+AWS STS — validates JWT against OIDC provider trust policy
+        │
+        │ 3. Temporary credentials (1 hour TTL)
+        ↓
+GitHub Actions — runs terraform plan / apply
+        │
+        │ 4. All AWS API calls logged
+        ↓
+CloudTrail → S3 audit bucket (optional, Object Lock immutable)
+```
 
-- **[TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md)** - 🏗️ Automated Terraform bootstrap with ABAC and state migration
+### Branch → Environment Mapping
 
-**Best Practice:** Test each environment sequentially (Dev → QA → Prod) before moving to the next.
+| Git branch | Environment | IAM Role assumed |
+|---|---|---|
+| `feature/*`, `develop` | `dev` | `github-actions-terraform-dev` |
+| `release/*` | `qa` | `github-actions-terraform-qa` |
+| `main` | `prod` | `github-actions-terraform-prod` |
+
+Each role is restricted to the OIDC trust policy for its own environment's branches. A `feature/*` branch cannot assume the prod role.
 
 ---
 
-## 📊 Architecture
+## CI/CD Workflow
 
-### How OIDC Works
+`.github/workflows/terraform-deploy.yml` runs on every push and PR:
 
-```
-┌──────────────────┐
-│ GitHub Actions   │
-│   Workflow       │
-└────────┬─────────┘
-         │
-         │ 1. Request OIDC token
-         ↓
-┌────────────────────────────────────────┐
-│  GitHub Token Service                  │
-│  - Generates signed JWT                │
-│  - Includes repo, branch, environment  │
-└────────┬───────────────────────────────┘
-         │
-         │ 2. Return JWT token
-         ↓
-┌──────────────────┐
-│ GitHub Actions   │
-│   Workflow       │
-└────────┬─────────┘
-         │
-         │ 3. Exchange token for AWS credentials
-         ↓
-┌────────────────────────────────────────┐
-│  AWS STS (Security Token Service)      │
-│  - Validates JWT signature             │◄─────┐
-│  - Checks trust policy conditions      │      │
-│  - Returns temporary credentials       │      │
-└────────┬───────────────────────────────┘      │
-         │                                       │
-         │ 4. Temporary credentials (~1 hour)    │
-         ↓                                       │
-┌──────────────────┐                            │
-│ GitHub Actions   │                            │
-│   Workflow       │                            │
-│ ✅ Authenticated  │                            │
-└────────┬─────────┘                            │
-         │                                       │
-         │ 5. AWS API calls                      │
-         ↓                                       │
-┌────────────────────────────────────────┐      │
-│  AWS Services                          │      │
-└────────────────────────────────────────┘      │
-                                                 │
-         ┌───────────────────────────────────────┘
-         │ All events logged
-         ↓
-┌────────────────────────────────────────┐
-│  AWS CloudTrail                        │
-│  - AssumeRoleWithWebIdentity events    │
-│  - All API calls with session details  │
-│  - Stored in S3 for audit/compliance   │
-└────────────────────────────────────────┘
-```
-
-### Complete Bootstrap Architecture
-
-```
-terraform-aws-oidc-bootstrap Repository
-        │
-        ├─── bootstrap/ (Terraform code)
-        │    ├─── variables.tf (Configuration)
-        │    └─── outputs.tf (Role ARNs, backend config)
-        │
-        └─── Documentation
-             ├─── TERRAFORM_BOOTSTRAP_GUIDE.md
-
-Bootstrap Creates (per environment):
-┌─────────────────────────────────────────────────┐
-│  AWS Account (dev/qa/prod)                      │
-│                                                  │
-│  ┌────────────────────────────────────────┐    │
-│  │ OIDC Provider                           │    │
-│  │ token.actions.githubusercontent.com     │    │
-│  │ + sts:TagSession support                │    │
-│  └─────────────┬──────────────────────────┘    │
-│                │                                 │
-│  ┌─────────────▼──────────────────────────┐    │
-│  │ IAM Role (ABAC-enabled)                 │    │
-│  │ github-actions-terraform-{env}          │    │
-│  │ + Session tags: projectID, environment  │    │
-│  └─────────────┬──────────────────────────┘    │
-│                │                                 │
-│  ┌─────────────▼──────────────────────────┐    │
-│  │ TerraformDeploymentPolicy (ABAC)        │    │
-│  │ - Project isolation (${projectID})      │    │
-│  │ - Environment isolation                 │    │
-│  │ - Bootstrap-only destructive ops        │    │
-│  │ - Expandable for Lambda, ECS, etc.      │    │
-│  └──────────────────────────────────────────┘   │
-│                                                  │
-│  ┌────────────────────────────────────────┐    │
-│  │ S3 State Bucket (Shared, ABAC-isolated) │    │
-│  │ {company}-tfstate-{env}-{account-id}    │    │
-│  │ - Versioning enabled                    │    │
-│  │ - Encryption (AES-256)                  │    │
-│  │ - Public access blocked                 │    │
-│  │ - TLS 1.2+ enforced                     │    │
-│  │ - Key prefix isolation per project      │    │
-│  └──────────────────────────────────────────┘   │
-│                                                  │
-│  ┌────────────────────────────────────────┐    │
-│  │ terraform-state-locks-{env}             │    │
-│  │ - Point-in-time recovery enabled        │    │
-│  │ - Pay-per-request billing               │    │
-│  │ - LeadingKeys isolation per project     │    │
-│  └──────────────────────────────────────────┘   │
-│                                                  │
-│  ┌────────────────────────────────────────┐    │
-│  │ CloudTrail (Immutable)                  │    │
-│  │ - Object Lock COMPLIANCE (90 days)      │    │
-│  │ - All OIDC authentications logged       │    │
-│  │ - CloudTrail Insights (anomalies)       │    │
-│  │ - Log validation (SHA-256)              │    │
-│  └──────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────┘
-
-GitHub Actions Workflow Uses:
-        │
-        ├─── Branch: develop → OIDC → AWS Account A (dev)
-        │                               └─ Role ARN from bootstrap
-        │
-        ├─── Branch: release/* → OIDC → AWS Account B (qa)
-        │                                └─ Role ARN from bootstrap
-        │
-        └─── Branch: main → OIDC → AWS Account C (prod)
-                                    └─ Role ARN from bootstrap
-```
+| Job | Trigger | What it does |
+|---|---|---|
+| `detect-environment` | always | Maps branch to dev / qa / prod |
+| `validate` | push / PR | `terraform fmt`, `validate`, TFLint |
+| `security-scan` | push / PR | Checkov, tfsec |
+| `plan` | push / PR | `terraform plan`, posts diff to PR comment |
+| `apply` | push (non-PR) | Applies only if plan has changes (`exitcode == 2`) |
+| `drift-detection` | scheduled (Mon 06:00 UTC) | Opens GitHub issue on drift |
 
 ---
 
-## 🔒 Security Highlights
+## Documentation
 
-### Defense-in-Depth (7 Layers)
+| Document | Purpose |
+|---|---|
+| [TERRAFORM_BOOTSTRAP_GUIDE.md](TERRAFORM_BOOTSTRAP_GUIDE.md) | Full step-by-step deployment guide with verification commands |
+| [docs/terragrunt-environments.md](docs/terragrunt-environments.md) | Managing dev / qa / prod with Terragrunt (DRY multi-env setup) |
+| [docs/adr/README.md](docs/adr/README.md) | Architecture Decision Records index |
+| [docs/adr/0001-arn-based-isolation-vs-abac.md](docs/adr/0001-arn-based-isolation-vs-abac.md) | Why ARN-based isolation replaced ABAC resource tags |
+| [docs/adr/0002-s3-native-locking-vs-dynamodb.md](docs/adr/0002-s3-native-locking-vs-dynamodb.md) | Why S3 native locking (`use_lockfile`) replaced DynamoDB |
+| [docs/adr/0003-organisation-wide-oidc-role.md](docs/adr/0003-organisation-wide-oidc-role.md) | Why the OIDC role has broad IAM permissions (accepted risk) |
+| [docs/runbooks/state-bucket-recovery.md](docs/runbooks/state-bucket-recovery.md) | How to recover from state bucket deletion or corruption |
+| [IMPROVEMENTS.md](IMPROVEMENTS.md) | Full improvement log with status of all known issues |
 
-1. **Bootstrap-Only Destructive Ops** - Only infrastructure project can delete shared resources
-2. **S3 Key Prefix Isolation** - Projects can only access `s3://bucket/{projectID}/*`
-4. **CloudTrail Immutable Logs** - Object Lock prevents deletion for 90 days
-5. **S3 Versioning** - State recovery from accidental deletions
-6. **Environment Isolation** - Dev/QA/Prod completely separated
-7. **Transport Security** - TLS 1.2+ enforced on all connections
+---
 
-### ABAC in Action
+## Expanding to New Projects
 
-**Scenario:** Marketing-AI project attempts to access Dataplatform state file
+Once bootstrapped, any project in your GitHub org can reuse the same role:
+
+```hcl
+# In your application's Terraform backend
+terraform {
+  backend "s3" {
+    bucket       = "yourcompany-tfstate-dev-123456789"
+    key          = "my-project/terraform.tfstate"
+    region       = "eu-west-1"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
+```
 
 ```yaml
-# GitHub Actions passes session tags
-role-session-tags: |
-  projectID=marketing-ai
-  environment=dev
+# In your application's GitHub Actions workflow
+- uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: ${{ vars.AWS_ROLE_ARN_DEV }}
+    role-session-tags: |
+      Project=my-project
+      environment=dev
 ```
 
-**IAM Evaluation:**
-```json
-{
-  "Resource": "arn:aws:s3:::bucket/${aws:PrincipalTag/projectID}/*"
-}
-// Resolves to: arn:aws:s3:::bucket/marketing-ai/*
-// Request for: s3://bucket/dataplatform/terraform.tfstate
-// Result: ACCESS DENIED ❌
-```
-
-**Result:** Complete isolation between projects with single policy.
-
-### Threat Protection
-
-| Threat | Defense | Result |
-|--------|---------|--------|
-| **Insider deletes state bucket** | Bootstrap-only DeleteBucket | ❌ Denied |
-| **Cross-project state tampering** | S3 key prefix isolation | ❌ Denied |
-| **Audit log deletion** | Object Lock COMPLIANCE | ❌ Denied |
-| **State file deletion** | S3 versioning | ✅ Recoverable |
+Add project-specific IAM permissions by extending `bootstrap/iam-policies.tf`.
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
----
-
-## 🎁 What You Get
-
-This repository provides the **complete foundation** for your AWS CI/CD infrastructure:
-
-### Infrastructure Created
-- ✅ **OIDC Identity Provider** - Secure GitHub Actions authentication with session tagging
-- ✅ **IAM Roles & Policies (ABAC)** - Dynamic permissions with project isolation
-- ✅ **S3 State Backend** - Versioned, encrypted, TLS 1.2+ enforced, project-isolated
-- ✅ **CloudTrail with Object Lock** - Immutable 90-day audit trail
-- ✅ **Automated Migration** - Seamless local-to-S3 state transition
-- ✅ **Defense-in-Depth Security** - 7 layers of protection
-
-### Security & Compliance
-- 🛡️ **ABAC** - Attribute-Based Access Control for multi-project environments
-- 🔒 **Immutable Audit Trail** - Tamper-proof CloudTrail logs
-- ✅ **Compliance Ready** - SOC 2, ISO 27001, PCI-DSS, GDPR aligned
-- 🔐 **Project Isolation** - Complete separation between projects
-- 🚨 **Threat Protection** - Guards against insider threats and cross-project attacks
-
-### Ready for Your Projects
-Once bootstrapped, deploy with ABAC isolation:
-- 🚀 **Lambda functions** (project-isolated)
-- 🚀 **Fargate/ECS** (project-isolated)
-- 🚀 **Glue data pipelines** (project-isolated)
-- 🚀 **Bedrock AI applications** (project-isolated)
-- 🚀 **Any AWS infrastructure** managed by Terraform
-
-**Each project gets:**
-- Own state file path: `s3://bucket/{projectID}/terraform.tfstate`
-- Own lock records: `{projectID}/*`
-- Complete isolation from other projects
-- Same IAM role, different access based on session tags
-
-### No Separate Repositories Needed
-Everything you need is in this single repository - no external dependencies for state management.
-
----
-
-## 📞 Support
-
-- 📖 Documentation: See guides in this repository
-- 🐛 Issues: Open an issue on GitHub
-- 💬 Discussions: Use GitHub Discussions
-
----
-
-## ⭐ Show Your Support
-
-If this project helped you, please give it a ⭐️!
-
----
-
-**Built with ❤️ for secure, modern DevOps practices**
+1. Fork → feature branch → PR against `develop`
+2. Run `pre-commit install` (see [.pre-commit-config.yaml](.pre-commit-config.yaml))
+3. CI must pass before merge
