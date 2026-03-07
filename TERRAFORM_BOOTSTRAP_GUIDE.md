@@ -269,7 +269,7 @@ The `bootstrap-{env}`, for example `bootstrap-dev` user will have explicit permi
 7. Click **Next**
 8. Set policy details:
    - **Policy name**: `bootstrap-{env}-policy`
-   - **Description**: `Grants permissions to manage OIDC identity providers, IAM roles and policies, CloudTrail logging, and policy simulation. Does not include resource provisioning permissions -EC2, Lambda, etc.- or PassRole capability.`
+   - **Description**: `Grants permissions to manage OIDC identity providers, IAM roles and policies, CloudTrail logging, and policy simulation.`
 9. Click **Create policy**
 
 ### Attach Policy to User

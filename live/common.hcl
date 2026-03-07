@@ -6,8 +6,8 @@
 
 locals {
   aws_region   = "eu-west-1"
-  company_name = "yourcompany"     # Prefix for S3 buckets: {company}-tfstate-{env}-{account}
-  github_org   = "your-github-org" # GitHub organisation name
+  company_name = "victorgalantech" # Prefix for S3 buckets: {company}-tfstate-{env}-{account}
+  github_org   = "victorgalantech" # GitHub organisation name
   github_repo  = "*"               # "*" = all repos in org; or a specific repo name
 
   # Branch restriction settings (applied to every environment)

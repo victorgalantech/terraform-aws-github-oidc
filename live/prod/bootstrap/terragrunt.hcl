@@ -37,7 +37,7 @@ inputs = {
   enable_branch_restriction = local.common.locals.enable_branch_restriction
   allowed_branches          = local.common.locals.allowed_branches
 
-  enable_cloudtrail         = true  # Enable for prod audit compliance
+  enable_cloudtrail         = true # Enable for prod audit compliance
   cloudtrail_retention_days = 365
 
   tags = {

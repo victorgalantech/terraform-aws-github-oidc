@@ -61,7 +61,7 @@ generate "provider" {
 # Run the initial bootstrap with a local backend:
 #
 #   cd live/<env>/bootstrap
-#   terragrunt apply --terragrunt-no-auto-init -backend=false
+#   terragrunt apply --terragrunt-no-auto-init
 #
 # Once the bucket is created, migrate state:
 #
@@ -69,28 +69,28 @@ generate "provider" {
 #
 # All subsequent runs (including CI/CD) work normally.
 # -----------------------------------------------------------------------------
-remote_state {
-  backend = "s3"
-  generate = {
-    path      = "backend.tf"
-    if_exists = "overwrite_terragrunt"
-  }
-  config = {
-    bucket       = "${local.company_name}-tfstate-${local.environment}-${local.account_id}"
-    key          = "${path_relative_to_include()}/terraform.tfstate"
-    region       = local.aws_region
-    encrypt      = true
-    use_lockfile = true
-
-    # Do NOT let Terragrunt auto-create the bucket — the bootstrap module owns it.
-    skip_bucket_creation               = true
-    skip_bucket_versioning             = true
-    skip_bucket_ssencryption           = true
-    skip_bucket_accesslogging          = true
-    skip_bucket_root_access            = true
-    skip_bucket_public_access_blocking = true
-  }
-}
+# remote_state {
+#   backend = "s3"
+#   generate = {
+#     path      = "backend.tf"
+#     if_exists = "overwrite_terragrunt"
+#   }
+#   config = {
+#     bucket       = "${local.company_name}-tfstate-${local.environment}-${local.account_id}"
+#     key          = "${path_relative_to_include()}/terraform.tfstate"
+#     region       = local.aws_region
+#     encrypt      = true
+#     use_lockfile = true
+#
+#     # Do NOT let Terragrunt auto-create the bucket — the bootstrap module owns it.
+#     disable_bucket_creation            = true
+#     skip_bucket_versioning             = true
+#     skip_bucket_ssencryption           = true
+#     skip_bucket_accesslogging          = true
+#     skip_bucket_root_access            = true
+#     skip_bucket_public_access_blocking = true
+#   }
+# }
 
 # -----------------------------------------------------------------------------
 # Minimum Terragrunt version

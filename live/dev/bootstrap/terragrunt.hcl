@@ -5,7 +5,7 @@
 #
 # First-time deploy (bucket does not exist yet):
 #   export AWS_PROFILE=bootstrap-dev
-#   terragrunt apply --terragrunt-no-auto-init -backend=false
+#   terragrunt apply --terragrunt-no-auto-init
 #   terragrunt init -migrate-state
 #
 # Subsequent deploys (bucket exists):
